@@ -106,7 +106,8 @@
 /* --- App-Modus: Upload-UI ausblenden (Elemente bleiben im DOM) --- */
 .headerBar{ display:none !important; }
 #stateFile{ display:none !important; }
-header p, .zoomHint{ display:none !important; }
+header p{ display:none !important; }
+.zoomHint{ display:none !important; }
 
 /* --- Layout: Vollhöhe (damit die Karte unten nicht abgeschnitten wird) --- */
 *,*::before,*::after{box-sizing:border-box;}
@@ -118,12 +119,18 @@ header { flex: 0 0 auto; }
 #mapHost { min-height: 0; height: 100%; }
 
 </style>
+
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="MEV Streckenkundekarten App" />
+  <meta name="theme-color" content="#0b1220" />
+
 </head>
 <body>
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 12:37 UTC</div>
-  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> startet …</div>
+  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 12:47 UTC</div>
+  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> wartet …</div>
   <div class="headerBar">
     <div class="hbItem">
       <label for="svgFile">1) SVG-Datei</label>
@@ -134,7 +141,7 @@ header { flex: 0 0 auto; }
 
 <div class="wrap">
   <section class="panel">
-<h2>2) Personendaten & Speichern</h2>
+<h2>Personendaten & Speichern</h2>
  <div class="row">
    <label>Name</label>
    <input id="nachname" type="text" autocomplete="family-name" placeholder="Name" />
@@ -161,7 +168,7 @@ header { flex: 0 0 auto; }
 
 
 <div class="hr"></div>
-<h2>3) Strecke wählen & markieren</h2>
+<h2>Strecke wählen & markieren</h2>
     <div class="row">
       <label>Auswahl</label>
       <div id="selectedRoute" class="hint"></div>
@@ -1125,25 +1132,12 @@ window.addEventListener('load', function(){
     openMail(payload);
   });
 
-  var sf = $('stateFile');
-  if (sf) sf.addEventListener('change', function(ev){
-    var f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
-    if (!f) return;
-    loadStateFromFile(f)
-      .then(function(payload){
-        if (applyLoadedPayload(payload)) { toast('Streckenkundekarte geladen.'); }
-        else { toast('Datei ist keine gültige Streckenkundekarte.'); }
-      })
-      .catch(function(err){ console.error(err); toast('JSON konnte nicht gelesen werden.'); });
-    try { sf.value = ''; } catch(e) {}
   });
-});
 
 rebuildRouteList();
 
 
-// === AUTLOAD_APP_V2 =====================================================
-// Lädt assets/map.svg (Pflicht) und assets/index.json (optional).
+// === AUTOLOAD_APP_V3 ====================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
   function setStatus(msg){ if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; }
@@ -1157,8 +1151,7 @@ rebuildRouteList();
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), ms);
     try{
-      const r = await fetch(url, { cache:'no-store', signal: ctrl.signal });
-      return r;
+      return await fetch(url, { cache:'no-store', signal: ctrl.signal });
     } finally {
       clearTimeout(t);
     }
@@ -1183,10 +1176,13 @@ rebuildRouteList();
   async function loadSvg(){
     const url = abs('assets/map.svg');
     setStatus('lade SVG …');
-    const r = await fetchWithTimeout(url, 12000);
+    const r = await fetchWithTimeout(url, 20000);
     if(!r.ok) throw new Error('SVG HTTP ' + r.status);
     const txt = await r.text();
     if(!txt || txt.indexOf('<svg') === -1) throw new Error('SVG Inhalt ungültig');
+
+    setStatus('SVG geladen, rendere …');
+    await new Promise(res => setTimeout(res, 0));
     embedSvg(txt);
   }
 
@@ -1195,10 +1191,9 @@ rebuildRouteList();
     if(running) return;
     running = true;
     try{
-      // Index optional
-      try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen (' + (e && e.message ? e.message : e) + ')'); }
+      try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen'); }
       await loadSvg();
-      setStatus('SVG geladen.');
+      setStatus('fertig');
     }catch(e){
       setStatus('Fehler: ' + (e && e.message ? e.message : e));
       const host = document.getElementById('mapHost');
@@ -1214,12 +1209,11 @@ rebuildRouteList();
   }
 
   function schedule(){
-    setTimeout(autoload, 50);
-    setTimeout(autoload, 350);
+    setTimeout(autoload, 80);
+    setTimeout(autoload, 400);
     setTimeout(autoload, 1400);
   }
 
-  // auf iOS/Home-Screen zuverlässig
   document.addEventListener('DOMContentLoaded', schedule);
   document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') schedule(); });
   window.addEventListener('pageshow', schedule);
