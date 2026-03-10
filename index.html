@@ -101,7 +101,35 @@
 }
 .metaSmall { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.35; }
 
+
+
+/* --- App-Modus --- */
+header p{ display:none !important; }
+.zoomHint{ display:none !important; }
+
+/* Upload-Elemente komplett ausblenden (bleiben für JS als hidden Inputs vorhanden) */
+#stateFile{ display:none !important; }
+
+/* --- Layout: Vollhöhe --- */
+*,*::before,*::after{box-sizing:border-box;}
+html, body { height: 100%; }
+body { min-height: 100vh; display: flex; flex-direction: column; }
+header { flex: 0 0 auto; }
+.wrap { flex: 1 1 auto; min-height: 0; }
+.mapWrap { min-height: 0; height: 100%; }
+#mapHost { min-height: 0; height: 100%; }
+#svgObj{ width:100%; height:100%; display:block; border:0; }
+
+/* Unsichtbarer Fallback-Container */
+#hiddenFileInputs{ position:fixed; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden; }
+
 </style>
+
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="MEV Streckenkundekarten App" />
+  <meta name="theme-color" content="#0b1220" />
+
 </head>
 <body>
 
@@ -112,41 +140,39 @@
 </div>
 
 <header>
-  <h1>SVG-Karte Viewer</h1>
-  <p>SVG und Index oben laden. Danach Personendaten erfassen und Strecken markieren. Zoom: Mausrad. Pan: Alt+Drag oder mittlere Maustaste.</p>
-
-  <div class="headerBar">
-    <div class="hbItem">
-      <label for="svgFile">1) SVG-Datei</label>
-      <input id="svgFile" type="file" />
-    </div>
-    <div class="hbItem">
-      <label for="indexFile">Index (JSON)</label>
-      <input id="indexFile" type="file" accept="application/json,.json" />
-    </div>
-  </div>
-
+  <h1>MEV Streckenkundekarten App</h1>
+  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 14:28 UTC</div>
+  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert</div>
 </header>
 
 <div class="wrap">
   <section class="panel">
 <h2>Personendaten & Speichern</h2>
  <div class="row">
-   <label>Vorname</label>
-   <input id="vorname" type="text" autocomplete="given-name" placeholder="Vorname" />
    <label>Name</label>
    <input id="nachname" type="text" autocomplete="family-name" placeholder="Name" />
+   <label>Vorname</label>
+   <input id="vorname" type="text" autocomplete="given-name" placeholder="Vorname" />
    <label>Datum</label>
    <input id="datum" type="date" />
  </div>
  <div class="btns" style="margin-top:8px;">
-   <button class="btn primary" id="saveJson">Speichern (Datei)</button>
-   <button class="btn" id="loadFile">Laden (Datei)</button>
+   <button class="btn primary full" id="saveJson">Speichern (Datei)</button>
    <button class="btn" id="saveLocal">Speichern (Browser)</button>
    <button class="btn" id="loadLocal">Laden (Browser)</button>
    <button class="btn full" id="sendMail">Per E-Mail senden</button>
  </div>
-</div>
+ <div class="row" style="margin-top:10px;">
+   <label>Streckenkundekarte laden (JSON)</label>
+   <input id="stateFile" type="file" accept="application/json,.json" />
+   <div class="hint">Lädt eine Datei aus "Speichern (Datei)" und stellt Name, Vorname, Datum sowie Markierungen wieder her.</div>
+ </div>
+ <div class="hint" style="margin-top:6px;">
+   <b>Hinweis:</b> "Speichern (Datei)" lädt eine JSON-Datei herunter (inkl. Linienstatus und Punkt-Overrides).
+   "Per E-Mail senden" öffnet dein Mailprogramm über <code>mailto:</code> (ohne Anhang, dafür mit Zusammenfassung).
+ </div>
+
+
 <div class="hr"></div>
 <h2>Strecke wählen & markieren</h2>
     <div class="row">
@@ -189,12 +215,7 @@
 </section>
 
   <section class="mapWrap">
-    <div class="zoomHint">Zoom: 2 Finger · Pan: 1 Finger</div>
-    <div id=\"touchControls\" aria-label=\"Karte steuern\">
-      <button class=\"tbtn\" id=\"zoomIn\" title=\"Zoom +\">+</button>
-      <button class=\"tbtn\" id=\"zoomOut\" title=\"Zoom -\">−</button>
-      <button class=\"tbtn\" id=\"zoomReset\" title=\"Ansicht\">⟳</button>
-    </div>
+    <div class="zoomHint">Zoom: Mausrad · Pan: Alt+Drag / Mitteltaste</div>
     <div id="mapHost">
       <div style="color:#111; font-family: system-ui; padding:12px;">
         <b>SVG noch nicht geladen.</b><br>
@@ -207,6 +228,17 @@
 <div id="toast" class="toast"></div>
 
 <script>
+
+// === BOOTSTRAP_APP_V9 ===================================================
+(function(){
+  const st = document.getElementById('autoloadStatus');
+  const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
+  window.addEventListener('error', (ev) => { try{ setStatus('JS-Fehler: ' + (ev && ev.message ? ev.message : ev)); }catch(e){} });
+  window.addEventListener('unhandledrejection', (ev) => { try{ setStatus('Promise-Fehler: ' + (ev && ev.reason ? (ev.reason.message || ev.reason) : ev)); }catch(e){} });
+  setStatus('JS läuft');
+})();
+
+
   let svgRoot = null;
 
   let indexData = {
@@ -650,6 +682,188 @@ function renderOrtskenntnisList() {
     }, { passive: false });
   }
 
+
+  // Touch: 1 Finger = Pan, 2 Finger = Zoom (Pinch). Tap = Punkt-Klick.
+  function enableTouchPanZoom(objEl) {
+    if (!svgRoot || !view.base) return;
+    try { svgRoot.style.touchAction = 'none'; } catch (e) {}
+
+    const pointers = new Map();
+    let dragging = false;
+    let panStart = null;
+    let panViewStart = null;
+    let pinchStart = null;
+    let tapInfo = null;
+
+    const TAP_MOVE_PX = 10;
+    const TAP_MAX_MS = 280;
+
+    let rafPending = false;
+    let rafPan = null;
+    let rafPinch = null;
+
+    function dist(a, b) {
+      const dx = a.x - b.x, dy = a.y - b.y;
+      return Math.hypot(dx, dy);
+    }
+
+    function midpoint(a, b) {
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    }
+
+    function clientToSvg(x, y) {
+      const pt = svgRoot.createSVGPoint();
+      pt.x = x; pt.y = y;
+      const ctm = svgRoot.getScreenCTM();
+      if (!ctm) return { x: 0, y: 0 };
+      const sp = pt.matrixTransform(ctm.inverse());
+      return { x: sp.x, y: sp.y };
+    }
+
+    function clamp(vb) {
+      const base = view.base;
+      const x = Math.min(Math.max(vb.x, base.x), base.x + base.w - vb.w);
+      const y = Math.min(Math.max(vb.y, base.y), base.y + base.h - vb.h);
+      return { x, y, w: vb.w, h: vb.h };
+    }
+
+    function panApply(p) {
+      if (!panStart || !panViewStart) return;
+      const dx = p.x - panStart.x;
+      const dy = p.y - panStart.y;
+      const rect = svgRoot.getBoundingClientRect();
+      const sx = panViewStart.w / rect.width;
+      const sy = panViewStart.h / rect.height;
+      setViewBox({
+        x: panViewStart.x - dx * sx,
+        y: panViewStart.y - dy * sy,
+        w: panViewStart.w,
+        h: panViewStart.h
+      });
+    }
+
+    function pinchApply(p1, p2) {
+      if (!pinchStart) return;
+      const d1 = dist(p1, p2);
+      if (d1 < 10) return;
+      const z = pinchStart.d0 / d1;
+      const vb = pinchStart.vb;
+      const p = pinchStart.midSvg;
+
+      const nx = p.x - (p.x - vb.x) * z;
+      const ny = p.y - (p.y - vb.y) * z;
+      const nw = vb.w * z;
+      const nh = vb.h * z;
+
+      const minW = view.base.w * 0.02;
+      const maxW = view.base.w * 20;
+      if (nw < minW || nw > maxW) return;
+
+      setViewBox(clamp({ x: nx, y: ny, w: nw, h: nh }));
+    }
+
+    function requestFrame() {
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => {
+        rafPending = false;
+        if (rafPinch) {
+          pinchApply(rafPinch[0], rafPinch[1]);
+          rafPinch = null;
+        } else if (rafPan) {
+          panApply(rafPan);
+          rafPan = null;
+        }
+      });
+    }
+
+    function synthClick(cx, cy) {
+      const doc = objEl && objEl.contentDocument;
+      if (!doc) return;
+      const target = doc.elementFromPoint(cx, cy);
+      if (!target) return;
+      let el = target;
+      for (let i = 0; i < 8; i++) {
+        if (el && el.getAttribute && (el.getAttribute('data-typ') || el.getAttribute('data-type'))) break;
+        el = el && el.parentElement;
+      }
+      if (!el) return;
+      try {
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      } catch (e) {}
+    }
+
+    svgRoot.addEventListener('pointerdown', (ev) => {
+      if (ev.pointerType !== 'touch') return;
+      pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      try { svgRoot.setPointerCapture(ev.pointerId); } catch (e) {}
+
+      if (pointers.size === 1) {
+        const p0 = Array.from(pointers.values())[0];
+        dragging = false;
+        tapInfo = { t: Date.now(), x0: p0.x, y0: p0.y };
+        panStart = { x: p0.x, y: p0.y };
+        panViewStart = { ...view.cur };
+      } else if (pointers.size === 2) {
+        ev.preventDefault();
+        dragging = true;
+        tapInfo = null;
+        const [a, b] = Array.from(pointers.values());
+        const mid = midpoint(a, b);
+        pinchStart = { d0: dist(a, b), midSvg: clientToSvg(mid.x, mid.y), vb: { ...view.cur } };
+      }
+    }, { passive: false });
+
+    svgRoot.addEventListener('pointermove', (ev) => {
+      if (ev.pointerType !== 'touch') return;
+      if (!pointers.has(ev.pointerId)) return;
+      pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+
+      if (pointers.size === 1) {
+        const p = Array.from(pointers.values())[0];
+        if (tapInfo) {
+          const dx = p.x - tapInfo.x0, dy = p.y - tapInfo.y0;
+          if (Math.hypot(dx, dy) > TAP_MOVE_PX) dragging = true;
+        }
+        if (dragging) {
+          ev.preventDefault();
+          rafPan = p;
+          requestFrame();
+        }
+      } else if (pointers.size === 2) {
+        ev.preventDefault();
+        const [a, b] = Array.from(pointers.values());
+        rafPinch = [a, b];
+        requestFrame();
+      }
+    }, { passive: false });
+
+    function end(ev) {
+      if (ev.pointerType !== 'touch') return;
+      const last = pointers.get(ev.pointerId);
+      pointers.delete(ev.pointerId);
+
+      if (!dragging && tapInfo && last) {
+        const dt = Date.now() - tapInfo.t;
+        const dx = last.x - tapInfo.x0, dy = last.y - tapInfo.y0;
+        if (dt <= TAP_MAX_MS && Math.hypot(dx, dy) <= TAP_MOVE_PX) synthClick(last.x, last.y);
+      }
+
+      if (pointers.size < 2) pinchStart = null;
+      if (pointers.size == 0) {
+        dragging = false;
+        panStart = null;
+        panViewStart = null;
+        tapInfo = null;
+        pinchStart = null;
+      }
+    }
+
+    svgRoot.addEventListener('pointerup', end, { passive: true });
+    svgRoot.addEventListener('pointercancel', end, { passive: true });
+  }
+
+
   function enablePanHandlers() {
     svgRoot.addEventListener('pointerdown', (evt) => {
       const panAllowed = evt.altKey || evt.button === 1;
@@ -725,6 +939,7 @@ function renderOrtskenntnisList() {
     enablePointClickCycle();
     enablePanHandlers();
     enableWheelZoom();
+          enableTouchPanZoom(obj);
 
     applySelection();
     renderActiveLines();
@@ -1101,17 +1316,11 @@ window.addEventListener('load', function(){
     toast('Streckenkundekarte im Browser gespeichert.');
   });
 
-  
-  var bFile = $('loadFile');
-  if (bFile) bFile.addEventListener('click', function(){
-    var sf2 = $('stateFile');
-    if (sf2) sf2.click();
-  });
-var b3 = $('loadLocal');
+  var b3 = $('loadLocal');
   if (b3) b3.addEventListener('click', function(){
     var payload = loadFromBrowser();
     if (!payload) { toast('Keine gespeicherten Daten im Browser gefunden.'); return; }
-    if (applyLoadedPayload(payload)) { try { $('datum').value = ''; } catch(e) {} toast('Streckenkundekarte geladen.'); }
+    if (applyLoadedPayload(payload)) toast('Streckenkundekarte geladen.');
     else toast('Gespeicherte Daten sind ungültig.');
   });
 
@@ -1140,273 +1349,106 @@ var b3 = $('loadLocal');
 rebuildRouteList();
 
 
-// === APP_AUTOLOAD_V11B (build 2026-03-10 15:18 UTC) ===============================
+// === AUTOLOAD_APP_V9 ====================================================
 (function(){
-  const status = document.getElementById('toast');
-  function set(msg){ try{ console.log(msg); }catch(e){} }
+  const st = document.getElementById('autoloadStatus');
+  const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
 
-  function appBase(){
-    // Wenn die App versehentlich unter / geöffnet wird, trotzdem korrekt auf Repo-Pfad zeigen.
-    const p = window.location.pathname || '/';
-    if(p.indexOf('/streckenkundekarteonline/') !== -1) return new URL('./', window.location.href).toString();
-    return window.location.origin + '/streckenkundekarteonline/';
+  function abs(rel){
+    const base = window.location.href.split('#')[0];
+    return new URL(rel, base).toString();
   }
 
   async function loadIndex(){
-    try{
-      const url = appBase() + 'assets/index.json';
-      const r = await fetch(url, {cache:'no-store'});
-      if(!r.ok) return;
-      const obj = await r.json();
-      if(obj && typeof obj === 'object'){
-        if (obj.colors) indexData.colors = obj.colors;
-        if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
-        if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
-        rebuildRouteList();
-      }
-    }catch(e){}
-  }
-
-  function clampToBase(nx, ny, nw, nh){
-    const vb = view.base;
-    const x = Math.min(Math.max(nx, vb.x), vb.x + vb.w - nw);
-    const y = Math.min(Math.max(ny, vb.y), vb.y + vb.h - nh);
-    return {x,y,w:nw,h:nh};
-  }
-
-  function focusOnBbox(bb, zoomFactor){
-    const cx = bb.x + bb.width/2;
-    const cy = bb.y + bb.height/2;
-    const f = Math.max(1.0, Number(zoomFactor)||1.0);
-    const nw = view.base.w / f;
-    const nh = view.base.h / f;
-    setViewBox(clampToBase(cx-nw/2, cy-nh/2, nw, nh));
-  }
-
-  function focusOnCode(code, zoomFactor){
-    const el = svgRoot && svgRoot.querySelector('[data-code="' + code + '"]');
-    if(!el || !el.getBBox) return false;
-    focusOnBbox(el.getBBox(), zoomFactor);
-    return true;
-  }
-
-  function focusLineMid(line, zoomFactor){
-    if(!svgRoot || !view.base || !line) return false;
-    const nodes = Array.from(svgRoot.querySelectorAll('[data-typ],[data-type]'))
-      .filter(el => (typeof isPoint === 'function' ? isPoint(el) : true))
-      .filter(el => (typeof matchesAnyLine === 'function' ? matchesAnyLine(el, line) : (el.getAttribute('data-line') === line)));
-    if(!nodes.length) return false;
-    let sx=0, sy=0, n=0; const centers=[];
-    for(const el of nodes){
-      if(!el.getBBox) continue;
-      const bb = el.getBBox();
-      const cx = bb.x + bb.width/2;
-      const cy = bb.y + bb.height/2;
-      centers.push({bb,cx,cy});
-      sx+=cx; sy+=cy; n++;
-    }
-    if(!n) return false;
-    const ax=sx/n, ay=sy/n;
-    let best=centers[0], bestD=Infinity;
-    for(const c of centers){
-      const dx=c.cx-ax, dy=c.cy-ay; const d=dx*dx+dy*dy;
-      if(d<bestD){ bestD=d; best=c; }
-    }
-    focusOnBbox(best.bb, zoomFactor);
-    return true;
-  }
-
-  function enableTouch(obj){
-    const pointers=new Map();
-    let panStart=null, panViewStart=null, pinchStart=null;
-    let dragging=false, tapInfo=null;
-    const TAP_MOVE_PX=10, TAP_MAX_MS=280;
-    let rafPending=false, rafPan=null, rafPinch=null;
-
-    function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
-    function midpoint(a,b){ return {x:(a.x+b.x)/2, y:(a.y+b.y)/2}; }
-    function clientToSvg(x,y){
-      const pt = svgRoot.createSVGPoint(); pt.x=x; pt.y=y;
-      const ctm = svgRoot.getScreenCTM(); if(!ctm) return {x:0,y:0};
-      const sp = pt.matrixTransform(ctm.inverse());
-      return {x:sp.x,y:sp.y};
-    }
-
-    function startPan(p){ panStart={x:p.x,y:p.y}; panViewStart={...view.cur}; }
-    function panApply(p){
-      if(!panStart||!panViewStart) return;
-      const dx=p.x-panStart.x, dy=p.y-panStart.y;
-      const rect=svgRoot.getBoundingClientRect();
-      const sx=panViewStart.w/rect.width, sy=panViewStart.h/rect.height;
-      setViewBox({x:panViewStart.x-dx*sx, y:panViewStart.y-dy*sy, w:panViewStart.w, h:panViewStart.h});
-    }
-
-    function startPinch(p1,p2){
-      const d0=dist(p1,p2);
-      const mid=midpoint(p1,p2);
-      const sp=clientToSvg(mid.x, mid.y);
-      pinchStart={d0, midSvg:sp, vb:{...view.cur}};
-    }
-    function pinchApply(p1,p2){
-      if(!pinchStart) return;
-      const d1=dist(p1,p2); if(d1<10) return;
-      const z=pinchStart.d0/d1;
-      const vb=pinchStart.vb; const p=pinchStart.midSvg;
-      const nx=p.x-(p.x-vb.x)*z; const ny=p.y-(p.y-vb.y)*z;
-      const nw=vb.w*z; const nh=vb.h*z;
-      const minW=view.base.w*0.02; const maxW=view.base.w*20;
-      if(nw<minW||nw>maxW) return;
-      setViewBox(clampToBase(nx,ny,nw,nh));
-    }
-
-    function request(){
-      if(rafPending) return;
-      rafPending=true;
-      requestAnimationFrame(()=>{
-        rafPending=false;
-        if(rafPinch){ pinchApply(rafPinch[0], rafPinch[1]); rafPinch=null; }
-        else if(rafPan){ panApply(rafPan); rafPan=null; }
-      });
-    }
-
-    function reset(){ panStart=null; panViewStart=null; pinchStart=null; dragging=false; tapInfo=null; rafPan=null; rafPinch=null; rafPending=false; }
-
-    function synthClick(cx,cy){
-      const doc = obj && obj.contentDocument;
-      if(!doc) return;
-      const target = doc.elementFromPoint(cx,cy);
-      if(!target) return;
-      let el=target;
-      for(let i=0;i<8;i++){
-        if(el && el.id && (el.getAttribute('data-typ')||el.getAttribute('data-type'))) break;
-        el=el && el.parentElement;
-      }
-      if(!el) return;
-      try{ el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,view:window})); }catch(e){}
-    }
-
-    svgRoot.addEventListener('pointerdown', (ev)=>{
-      if(ev.pointerType!=='touch') return;
-      pointers.set(ev.pointerId, {x:ev.clientX,y:ev.clientY});
-      try{ svgRoot.setPointerCapture(ev.pointerId); }catch(e){}
-      if(pointers.size===1){
-        const p=Array.from(pointers.values())[0];
-        startPan(p); dragging=false; tapInfo={t:Date.now(), x0:p.x, y0:p.y};
-      } else if(pointers.size===2){
-        ev.preventDefault();
-        const [a,b]=Array.from(pointers.values());
-        startPinch(a,b); dragging=true; tapInfo=null;
-      }
-    }, {passive:false}));
-
-    svgRoot.addEventListener('pointermove', (ev)=>{
-      if(ev.pointerType!=='touch') return;
-      if(!pointers.has(ev.pointerId)) return;
-      const pNew={x:ev.clientX,y:ev.clientY};
-      pointers.set(ev.pointerId, pNew);
-      if(pointers.size===1){
-        const p=Array.from(pointers.values())[0];
-        if(tapInfo){
-          const dx=p.x-tapInfo.x0, dy=p.y-tapInfo.y0;
-          if(Math.hypot(dx,dy)>TAP_MOVE_PX) dragging=true;
-        }
-        if(dragging){ ev.preventDefault(); rafPan=p; request(); }
-      } else if(pointers.size===2){
-        ev.preventDefault();
-        const [a,b]=Array.from(pointers.values());
-        rafPinch=[a,b]; request();
-      }
-    }, {passive:false}));
-
-    function end(ev){
-      if(ev.pointerType!=='touch') return;
-      const last=pointers.get(ev.pointerId);
-      pointers.delete(ev.pointerId);
-      if(!dragging && tapInfo && last){
-        const dt=Date.now()-tapInfo.t;
-        const dx=last.x-tapInfo.x0, dy=last.y-tapInfo.y0;
-        if(dt<=TAP_MAX_MS && Math.hypot(dx,dy)<=TAP_MOVE_PX) synthClick(last.x,last.y);
-      }
-      if(pointers.size<2) pinchStart=null;
-      if(pointers.size===0) reset();
-    }
-    svgRoot.addEventListener('pointerup', end, {passive:true});
-    svgRoot.addEventListener('pointercancel', end, {passive:true});
-
-    // Buttons
-    const zin=document.getElementById('zoomIn');
-    const zout=document.getElementById('zoomOut');
-    const zreset=document.getElementById('zoomReset');
-
-    function zoom(f){
-      const vb={...view.cur};
-      const cx=vb.x+vb.w/2, cy=vb.y+vb.h/2;
-      const nw=vb.w*f, nh=vb.h*f;
-      const minW=view.base.w*0.02; const maxW=view.base.w*20;
-      if(nw<minW||nw>maxW) return;
-      setViewBox(clampToBase(cx-nw/2, cy-nh/2, nw, nh));
-    }
-
-    if(zin) zin.addEventListener('click', ()=>zoom(0.85));
-    if(zout) zout.addEventListener('click', ()=>zoom(1.18));
-    if(zreset) zreset.addEventListener('click', ()=>{ setViewBox({...view.base}); focusOnCode('MU', 2.0); });
-
-    if(typeof window.setSelectedLineUi === 'function' && !window.__mevLinePatch){
-      window.__mevLinePatch=true;
-      const orig=window.setSelectedLineUi;
-      window.setSelectedLineUi=function(line){
-        orig(line);
-        if(line) setTimeout(()=>{ focusLineMid(line, 2.0); }, 0);
-      };
+    const url = abs('assets/index.json');
+    setStatus('lade Index …');
+    const r = await fetch(url, { cache:'no-store' });
+    if(!r.ok) throw new Error('Index HTTP ' + r.status);
+    const obj = await r.json();
+    if(obj && typeof obj === 'object'){
+      if (obj.colors) indexData.colors = obj.colors;
+      if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
+      if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
+      rebuildRouteList();
+      applySelection();
+      renderActiveLines();
     }
   }
 
-  function loadSvg(){
-    return new Promise((resolve, reject)=>{
-      const host=document.getElementById('mapHost');
+  function loadSvgViaObject(){
+    return new Promise((resolve, reject) => {
+      const host = document.getElementById('mapHost');
       if(!host) return reject(new Error('mapHost fehlt'));
-      host.innerHTML='<object id="svgObj" type="image/svg+xml"></object>';
-      const obj=document.getElementById('svgObj');
+
+      host.innerHTML = '<object id="svgObj" type="image/svg+xml"></object>';
+      const obj = document.getElementById('svgObj');
       if(!obj) return reject(new Error('svgObj fehlt'));
-      obj.addEventListener('load', ()=>{
+
+      obj.addEventListener('load', () => {
         try{
-          const doc=obj.contentDocument;
-          const svg=doc && doc.querySelector('svg');
+          const doc = obj.contentDocument;
+          if(!doc) throw new Error('contentDocument leer');
+          const svg = doc.querySelector('svg');
           if(!svg) throw new Error('keine <svg>-Wurzel');
-          svgRoot=svg;
-          svgRoot.style.width='100%';
-          svgRoot.style.height='100%';
-          svgRoot.style.display='block';
-          svgRoot.style.maxWidth='100%';
-          try{ svgRoot.style.touchAction='none'; }catch(e){}
 
-          view.base=getInitialViewBox(svgRoot);
-          setViewBox({...view.base});
+          svgRoot = svg;
+          svgRoot.style.width = '100%';
+          svgRoot.style.height = '100%';
+          svgRoot.style.display = 'block';
+          svgRoot.style.maxWidth = '100%';
 
+          view.base = getInitialViewBox(svgRoot);
+          setViewBox({ ...view.base });
+          rebuildRouteList();
           enablePointClickCycle();
+          enablePanHandlers();
           enableWheelZoom();
-
-          enableTouch(obj);
-
           applySelection();
           renderActiveLines();
 
-          setTimeout(()=>{ focusOnCode('MU', 2.0); }, 0);
-
           resolve();
-        }catch(e){ reject(e); }
+        } catch(e){ reject(e); }
       });
-      obj.addEventListener('error', ()=>reject(new Error('object load error')));
-      obj.data = appBase() + 'assets/map.svg';
+      obj.addEventListener('error', () => reject(new Error('object load error')));
+
+      obj.data = abs('assets/map.svg');
     });
   }
 
-  // Start
-  (async()=>{
-    await loadIndex();
-    await loadSvg();
-  })();
+  let running = false;
+  async function autoload(){
+    if(running) return;
+    running = true;
+    try{
+      try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen'); }
+      setStatus('lade SVG …');
+      await loadSvgViaObject();
+      setStatus('fertig');
+    } catch(e){
+      setStatus('Fehler: ' + (e && e.message ? e.message : e));
+      const host = document.getElementById('mapHost');
+      if(host){
+        host.innerHTML = '<div style="color:#111;font-family:system-ui;padding:12px;">'
+          + '<b>Automatisches Laden fehlgeschlagen.</b><br>'
+          + 'Teste direkt: <a href="' + abs('assets/map.svg') + '" target="_blank" rel="noopener">assets/map.svg</a>'
+          + '</div>';
+      }
+    } finally {
+      running = false;
+    }
+  }
 
+  function schedule(){
+    setTimeout(autoload, 0);
+    setTimeout(autoload, 250);
+    setTimeout(autoload, 1200);
+  }
+
+  schedule();
+  document.addEventListener('DOMContentLoaded', schedule);
+  window.addEventListener('load', schedule);
+  window.addEventListener('pageshow', schedule);
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') schedule(); });
 })();
 
 </script>
