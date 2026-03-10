@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Streckenkundekarte</title>
+  <title>MEV Streckenkundekarten App</title>
   <style>
     :root {
       --bg: #0b1220;
@@ -116,30 +116,13 @@ header { flex: 0 0 auto; }
 
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="Streckenkundekarte" />
-  <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-title" content="MEV Streckenkundekarten App" />
   <meta name="theme-color" content="#0b1220" />
 
 </head>
 <body>
 <header>
-  <h1>SVG-Karte Viewer</h1>
-  <p>SVG und Index oben laden. Standard: assets/index.json und assets/map.svg werden automatisch geladen (falls vorhanden). Danach Personendaten erfassen und Strecken markieren. Zoom: Mausrad. Pan: Alt+Drag oder mittlere Maustaste.</p>
-
-  <div class="headerBar">
-    <div class="hbItem">
-      <label for="svgFile">1) SVG-Datei</label>
-      <input id="svgFile" type="file" />
-    </div>
-    <div class="hbItem">
-      <label for="indexFile">Index (JSON)</label>
-      <input id="indexFile" type="file" accept="application/json,.json" />
-    </div>
-  </div>
-
-
-  <div class="hint" id="autoloadStatus" style="margin-top:8px;"></div>
+  <h1>MEV Streckenkundekarten App</h1>
 </header>
 
 <div class="wrap">
@@ -159,15 +142,7 @@ header { flex: 0 0 auto; }
    <button class="btn" id="loadLocal">Laden (Browser)</button>
    <button class="btn full" id="sendMail">Per E-Mail senden</button>
  </div>
- <div class="row" style="margin-top:10px;">
-   <label>Streckenkundekarte laden (JSON)</label>
-   <input id="stateFile" type="file" accept="application/json,.json" />
-   <div class="hint">Lädt eine Datei aus "Speichern (Datei)" und stellt Name, Vorname, Datum sowie Markierungen wieder her.</div>
- </div>
- <div class="hint" style="margin-top:6px;">
-   <b>Hinweis:</b> "Speichern (Datei)" lädt eine JSON-Datei herunter (inkl. Linienstatus und Punkt-Overrides).
-   "Per E-Mail senden" öffnet dein Mailprogramm über <code>mailto:</code> (ohne Anhang, dafür mit Zusammenfassung).
- </div>
+ 
 
 
 <div class="hr"></div>
@@ -794,19 +769,10 @@ function renderOrtskenntnisList() {
   renderOrtskenntnisList();
 }
 
-  $('svgFile').addEventListener('change', async (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    const txt = await readFileAsText(f);
-    embedSvg(txt);
+  embedSvg(txt);
   });
 
-  $('indexFile').addEventListener('change', async (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    try {
-      const txt = await readFileAsText(f);
-      const obj = JSON.parse(txt);
+  const obj = JSON.parse(txt);
       if (obj.colors) indexData.colors = obj.colors;
       if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
       if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
@@ -1097,6 +1063,61 @@ function openMail(payload) {
   window.location.href = 'mailto:?subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(body);
 }
 
+
+
+// --- Autoload (ohne Upload-UI): lädt automatisch assets/index.json und assets/map.svg ---
+async function tryAutoloadAssets(){
+  // Unterpfad-sicher (GitHub Pages): URL relativ zur aktuellen Seite
+  const base = window.location.href.split('#')[0];
+  const idxUrl = new URL('assets/index.json', base).toString();
+  const svgUrl = new URL('assets/map.svg', base).toString();
+
+  // Index
+  try {
+    const r = await fetch(idxUrl, { cache: 'no-store' });
+    if (r.ok) {
+      const obj = await r.json();
+      if (obj && typeof obj === 'object') {
+        if (obj.colors) indexData.colors = obj.colors;
+        if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
+        if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
+        rebuildRouteList();
+      }
+    }
+  } catch(e) {}
+
+  // SVG
+  try {
+    const r2 = await fetch(svgUrl, { cache: 'no-store' });
+    if (r2.ok) {
+      const svgText = await r2.text();
+      if (svgText && svgText.indexOf('<svg') !== -1) {
+        embedSvg(svgText);
+      }
+    }
+  } catch(e) {}
+}
+
+// iOS/Safari: mehrfach anstossen (Safari + Home-Bildschirm)
+(function(){
+  let running = false;
+  async function run(){
+    if (running) return;
+    running = true;
+    try { await tryAutoloadAssets(); } finally { running = false; }
+  }
+  function schedule(){
+    setTimeout(run, 50);
+    setTimeout(run, 250);
+    setTimeout(run, 900);
+  }
+  document.addEventListener('DOMContentLoaded', schedule);
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible') schedule();
+  });
+  window.addEventListener('pageshow', schedule);
+  schedule();
+})();
 window.addEventListener('load', function(){
   try {
     var d = $('datum');
@@ -1135,17 +1156,7 @@ window.addEventListener('load', function(){
     openMail(payload);
   });
 
-  var sf = $('stateFile');
-  if (sf) sf.addEventListener('change', function(ev){
-    var f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
-    if (!f) return;
-    loadStateFromFile(f)
-      .then(function(payload){
-        if (applyLoadedPayload(payload)) { toast('Streckenkundekarte geladen.'); }
-        else { toast('Datei ist keine gültige Streckenkundekarte.'); }
-      })
-      .catch(function(err){ console.error(err); toast('JSON konnte nicht gelesen werden.'); });
-    try { sf.value = ''; } catch(e) {}
+  try { sf.value = ''; } catch(e) {}
   });
 });
 
