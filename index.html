@@ -125,11 +125,8 @@ header { flex: 0 0 auto; }
 
 
 
-/* Touch: Gesten sollen auf der Karte bleiben */
-.mapWrap, #mapHost {
-  touch-action: none;
-  overscroll-behavior: none;
-}
+/* Force: Build/Status immer sichtbar */
+#buildId, #autoloadStatus { display:block !important; }
 
 </style>
 
@@ -149,8 +146,8 @@ header { flex: 0 0 auto; }
 
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" P26-03-10 17:29 UTC</div>
-  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert</div>
+  <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-10 17:36 UTC</div>
+  <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
 </header>
 
 <div class="wrap">
@@ -616,11 +613,11 @@ function renderOrtskenntnisList() {
         const baseStatus = getLineStatusForElement(el);
         const cur = selection.overrides[id] || '';
 
-        let next = 'kundig';
-        if (cur === '') next = 'kundig';
+        let next = 'neutral';
+        if (cur === '') next = 'neutral';
+        else if (cur === 'neutral') next = 'kundig';
         else if (cur === 'kundig') next = 'unkundig';
         else if (cur === 'unkundig') next = '';
-        else next = '';
 
         if (next === '') delete selection.overrides[id];
         else selection.overrides[id] = next;
@@ -689,84 +686,6 @@ function renderOrtskenntnisList() {
       setViewBox({ x: nx, y: ny, w: nw, h: nh });
     }, { passive: false });
   }
-
-
-  // iOS/Safari: Pinch-Zoom über GestureEvent (verhindert Seiten-Zoom, zoomt ViewBox)
-  function enableGesturePinchZoom() {
-    if (!svgRoot || !view.base) return;
-    if (enableGesturePinchZoom._bound) return;
-    enableGesturePinchZoom._bound = true;
-
-    let active = false;
-    let startVB = null;
-    let startScale = 1;
-    let anchor = { x: 0, y: 0 };
-
-    function clamp(vb) {
-      const base = view.base;
-      const x = Math.min(Math.max(vb.x, base.x), base.x + base.w - vb.w);
-      const y = Math.min(Math.max(vb.y, base.y), base.y + base.h - vb.h);
-      return { x, y, w: vb.w, h: vb.h };
-    }
-
-    function clientToSvgXY(x, y) {
-      const pt = svgRoot.createSVGPoint();
-      pt.x = x; pt.y = y;
-      const ctm = svgRoot.getScreenCTM();
-      if (!ctm) return { x: 0, y: 0 };
-      const sp = pt.matrixTransform(ctm.inverse());
-      return { x: sp.x, y: sp.y };
-    }
-
-    function isInMap(target) {
-      const host = document.getElementById('mapHost');
-      return !!(host && target && (target === host || host.contains(target)));
-    }
-
-    const opts = { passive: false, capture: true };
-
-    document.addEventListener('gesturestart', function(e) {
-      if (!svgRoot || !view.cur || !view.base) return;
-      if (!isInMap(e.target)) return;
-      e.preventDefault();
-
-      active = true;
-      startVB = { ...view.cur };
-      startScale = (typeof e.scale === 'number' && e.scale) ? e.scale : 1;
-      const p = clientToSvgXY(e.clientX, e.clientY);
-      anchor = { x: p.x, y: p.y };
-    }, opts);
-
-    document.addEventListener('gesturechange', function(e) {
-      if (!active || !startVB || !svgRoot || !view.base) return;
-      if (!isInMap(e.target)) return;
-      e.preventDefault();
-
-      const scaleNow = (typeof e.scale === 'number' && e.scale) ? e.scale : 1;
-      // e.scale > 1 = auseinander (reinzoomen) -> ViewBox kleiner
-      const z = startScale / scaleNow;
-
-      const nw = startVB.w * z;
-      const nh = startVB.h * z;
-      const minW = view.base.w * 0.02;
-      const maxW = view.base.w * 20;
-      if (nw < minW || nw > maxW) return;
-
-      const nx = anchor.x - (anchor.x - startVB.x) * z;
-      const ny = anchor.y - (anchor.y - startVB.y) * z;
-
-      setViewBox(clamp({ x: nx, y: ny, w: nw, h: nh }));
-    }, opts);
-
-    document.addEventListener('gestureend', function(e) {
-      if (!active) return;
-      if (!isInMap(e.target)) return;
-      e.preventDefault();
-      active = false;
-      startVB = null;
-    }, opts);
-  }
-
 
   function enablePanHandlers() {
     svgRoot.addEventListener('pointerdown', (evt) => {
@@ -843,7 +762,6 @@ function renderOrtskenntnisList() {
     enablePointClickCycle();
     enablePanHandlers();
     enableWheelZoom();
-          enableGesturePinchZoom();
 
     applySelection();
     renderActiveLines();
