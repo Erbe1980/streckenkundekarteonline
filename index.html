@@ -105,17 +105,12 @@
 
 /* --- App-Modus: Upload-UI ausblenden --- */
 .headerBar{ display:none !important; }
-#svgFile,#indexFile,#stateFile{ display:none !important; }
+#hiddenFileInputs{ position:fixed; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden; }
+#stateFile{ display:none !important; }
 header p{ display:none !important; }
 
-/* Zoom-Hinweis im App-Modus (Touch) */
-.zoomHint{
-  position:absolute; left:10px; top:10px;
-  background: rgba(255,255,255,0.92);
-  color:#111; border:1px solid rgba(0,0,0,0.15);
-  padding:6px 8px; border-radius:10px;
-  font-size:12px;
-}
+/* Hinweis */
+.zoomHint{ position:absolute; left:10px; top:10px; background:rgba(255,255,255,0.92); color:#111; border:1px solid rgba(0,0,0,0.15); padding:6px 8px; border-radius:10px; font-size:12px; z-index:30; }
 
 /* --- Layout: Vollhöhe --- */
 *,*::before,*::after{box-sizing:border-box;}
@@ -123,26 +118,32 @@ html, body { height: 100%; }
 body { min-height: 100vh; display: flex; flex-direction: column; }
 header { flex: 0 0 auto; }
 .wrap { flex: 1 1 auto; min-height: 0; }
-.mapWrap { min-height: 0; height: 100%; }
+.mapWrap { min-height: 0; height: 100%; position:relative; }
 #mapHost { min-height: 0; height: 100%; }
 
 /* SVG via <object> */
 #svgObj{ width:100%; height:100%; display:block; border:0; }
 
-/* Kleine Touch-Controls */
-#touchControls{ position:absolute; right:10px; top:10px; display:flex; gap:8px; z-index:30; }
+/* Touch Controls */
+#touchControls{ position:absolute; right:10px; top:10px; display:flex; gap:8px; z-index:40; }
 .tbtn{ width:44px; height:44px; border-radius:12px; border:1px solid rgba(0,0,0,0.18);
-  background: rgba(255,255,255,0.92); color:#111; font-weight:800; font-size:18px; cursor:pointer;
-}
+  background: rgba(255,255,255,0.92); color:#111; font-weight:800; font-size:18px; cursor:pointer; }
 .tbtn:active{ transform: translateY(1px); }
 
 </style>
 </head>
 <body>
+
+<div id="hiddenFileInputs" aria-hidden="true">
+  <input id="svgFile" type="file" />
+  <input id="indexFile" type="file" accept="application/json,.json" />
+  <input id="stateFile" type="file" accept="application/json,.json" />
+</div>
+
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 14:33 UTC</div>
-  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Status:</b> bereit</div>
+  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 14:39 UTC</div>
+  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Status:</b> initialisiert</div>
 </header>
 
 <div class="wrap">
@@ -234,13 +235,13 @@ header { flex: 0 0 auto; }
 
 <script>
 
-// === APP_BOOT ===========================================================
+// === APP_BOOT_V10B ======================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
   const setStatus = (msg) => { if(st) st.innerHTML = '<b>Status:</b> ' + msg; };
   window.addEventListener('error', (ev) => { try{ setStatus('JS-Fehler: ' + (ev && ev.message ? ev.message : ev)); }catch(e){} });
   window.addEventListener('unhandledrejection', (ev) => { try{ setStatus('Promise-Fehler: ' + (ev && ev.reason ? (ev.reason.message || ev.reason) : ev)); }catch(e){} });
-  setStatus('initialisiert');
+  setStatus('JS läuft');
 })();
 
 
@@ -813,10 +814,19 @@ function renderOrtskenntnisList() {
   renderOrtskenntnisList();
 }
 
-  embedSvg(txt);
+  $('svgFile').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const txt = await readFileAsText(f);
+    embedSvg(txt);
   });
 
-  const obj = JSON.parse(txt);
+  $('indexFile').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    try {
+      const txt = await readFileAsText(f);
+      const obj = JSON.parse(txt);
       if (obj.colors) indexData.colors = obj.colors;
       if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
       if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
@@ -1145,12 +1155,24 @@ window.addEventListener('load', function(){
     openMail(payload);
   });
 
+  var sf = $('stateFile');
+  if (sf) sf.addEventListener('change', function(ev){
+    var f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
+    if (!f) return;
+    loadStateFromFile(f)
+      .then(function(payload){
+        if (applyLoadedPayload(payload)) { toast('Streckenkundekarte geladen.'); }
+        else { toast('Datei ist keine gültige Streckenkundekarte.'); }
+      })
+      .catch(function(err){ console.error(err); toast('JSON konnte nicht gelesen werden.'); });
+    try { sf.value = ''; } catch(e) {}
   });
+});
 
 rebuildRouteList();
 
 
-// === APP_AUTOLOAD_TOUCH =================================================
+// === APP_AUTOLOAD_V10B ==================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
   const setStatus = (msg) => { if(st) st.innerHTML = '<b>Status:</b> ' + msg; };
@@ -1185,20 +1207,13 @@ rebuildRouteList();
     svgRoot.style.height = '100%';
     svgRoot.style.display = 'block';
     svgRoot.style.maxWidth = '100%';
-
-    // wichtig für Touch: Browser-Gesten auf SVG verhindern
     try{ svgRoot.style.touchAction = 'none'; } catch(e){}
-    try{
-      svgRoot.addEventListener('touchmove', (e)=>e.preventDefault(), {passive:false});
-    } catch(e){}
 
     view.base = getInitialViewBox(svgRoot);
     setViewBox({ ...view.base });
 
     enablePointClickCycle();
     enableWheelZoom();
-
-    // neue Touch Pan/Zoom
     enableTouchPanZoom();
 
     applySelection();
@@ -1217,10 +1232,7 @@ rebuildRouteList();
       const dx=a.x-b.x, dy=a.y-b.y;
       return Math.hypot(dx,dy);
     }
-
-    function midpoint(a,b){
-      return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 };
-    }
+    function midpoint(a,b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
 
     function clientToSvg(x,y){
       const pt = svgRoot.createSVGPoint();
@@ -1243,84 +1255,58 @@ rebuildRouteList();
       const rect = svgRoot.getBoundingClientRect();
       const sx = panViewStart.w / rect.width;
       const sy = panViewStart.h / rect.height;
-      setViewBox({
-        x: panViewStart.x - dx * sx,
-        y: panViewStart.y - dy * sy,
-        w: panViewStart.w,
-        h: panViewStart.h
-      });
+      setViewBox({ x: panViewStart.x - dx*sx, y: panViewStart.y - dy*sy, w: panViewStart.w, h: panViewStart.h });
     }
 
     function startPinch(p1,p2){
       const d0 = dist(p1,p2);
       const mid = midpoint(p1,p2);
       const sp = clientToSvg(mid.x, mid.y);
-      pinchStart = { d0, midClient: mid, midSvg: sp, vb: { ...view.cur } };
+      pinchStart = { d0, midSvg: sp, vb: { ...view.cur } };
     }
 
     function doPinch(p1,p2){
       if(!pinchStart) return;
       const d1 = dist(p1,p2);
       if(d1 < 10) return;
-      const z = pinchStart.d0 / d1; // >1 = zoom in
+      const z = pinchStart.d0 / d1; // >1 zoom in
       const vb = pinchStart.vb;
       const p = pinchStart.midSvg;
-
       const nx = p.x - (p.x - vb.x) * z;
       const ny = p.y - (p.y - vb.y) * z;
       const nw = vb.w * z;
       const nh = vb.h * z;
-
       const minW = view.base.w * 0.02;
       const maxW = view.base.w * 20;
       if(nw < minW || nw > maxW) return;
-
       setViewBox({ x:nx, y:ny, w:nw, h:nh });
     }
 
-    function resetGestures(){
-      panStart = null;
-      panViewStart = null;
-      pinchStart = null;
-    }
+    function reset(){ panStart=null; panViewStart=null; pinchStart=null; }
 
     svgRoot.addEventListener('pointerdown', (ev)=>{
       if(ev.pointerType !== 'touch') return;
       ev.preventDefault();
-      pointers.set(ev.pointerId, {x: ev.clientX, y: ev.clientY});
+      pointers.set(ev.pointerId, {x:ev.clientX, y:ev.clientY});
       try{ svgRoot.setPointerCapture(ev.pointerId); }catch(e){}
-
-      if(pointers.size === 1){
-        const p = Array.from(pointers.values())[0];
-        startPan(p);
-      }
-      if(pointers.size === 2){
-        const [a,b] = Array.from(pointers.values());
-        startPinch(a,b);
-      }
+      if(pointers.size === 1){ startPan(Array.from(pointers.values())[0]); }
+      if(pointers.size === 2){ const [a,b] = Array.from(pointers.values()); startPinch(a,b); }
     }, {passive:false});
 
     svgRoot.addEventListener('pointermove', (ev)=>{
       if(ev.pointerType !== 'touch') return;
       if(!pointers.has(ev.pointerId)) return;
       ev.preventDefault();
-      pointers.set(ev.pointerId, {x: ev.clientX, y: ev.clientY});
-
-      if(pointers.size === 1){
-        const p = Array.from(pointers.values())[0];
-        doPan(p);
-      }
-      if(pointers.size === 2){
-        const [a,b] = Array.from(pointers.values());
-        doPinch(a,b);
-      }
+      pointers.set(ev.pointerId, {x:ev.clientX, y:ev.clientY});
+      if(pointers.size === 1){ doPan(Array.from(pointers.values())[0]); }
+      if(pointers.size === 2){ const [a,b] = Array.from(pointers.values()); doPinch(a,b); }
     }, {passive:false});
 
     function end(ev){
       if(ev.pointerType !== 'touch') return;
       pointers.delete(ev.pointerId);
       if(pointers.size < 2) pinchStart = null;
-      if(pointers.size === 0) resetGestures();
+      if(pointers.size === 0) reset();
     }
 
     svgRoot.addEventListener('pointerup', end, {passive:true});
@@ -1358,11 +1344,7 @@ rebuildRouteList();
       host.innerHTML = '<object id="svgObj" type="image/svg+xml"></object>';
       const obj = document.getElementById('svgObj');
       if(!obj) return reject(new Error('svgObj fehlt'));
-
-      obj.addEventListener('load', () => {
-        try{ initSvgFromObject(obj); resolve(); }
-        catch(e){ reject(e); }
-      });
+      obj.addEventListener('load', () => { try{ initSvgFromObject(obj); resolve(); } catch(e){ reject(e); } });
       obj.addEventListener('error', () => reject(new Error('object load error')));
       obj.data = abs('assets/map.svg');
     });
