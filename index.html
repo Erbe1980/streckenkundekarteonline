@@ -125,17 +125,11 @@ header { flex: 0 0 auto; }
 
 
 
-/* Touch: Overlay fängt Gesten ab, damit nur die Karte zoomt */
-#mapHost { position: relative; }
-#touchLayer {
-  position: absolute;
-  inset: 0;
-  background: transparent;
-  z-index: 50;
+/* Touch: Gesten sollen auf der Karte bleiben */
+.mapWrap, #mapHost {
   touch-action: none;
+  overscroll-behavior: none;
 }
-/* iOS: Seite nicht scrollen (Best effort) */
-html, body { overscroll-behavior: none; }
 
 </style>
 
@@ -155,7 +149,7 @@ html, body { overscroll-behavior: none; }
 
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" P26-03-10 17:22 UTC</div>
+  <div class="hint" P26-03-10 17:29 UTC</div>
   <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert</div>
 </header>
 
@@ -253,15 +247,7 @@ html, body { overscroll-behavior: none; }
 })();
 
 
-  
-// === IOS_GESTURE_BLOCK_OVERLAY =========================================
-(function(){
-  const opts = { passive: false, capture: true };
-  document.addEventListener('gesturestart', function(e){ e.preventDefault(); }, opts);
-  document.addEventListener('gesturechange', function(e){ e.preventDefault(); }, opts);
-  document.addEventListener('gestureend', function(e){ e.preventDefault(); }, opts);
-})();
-let svgRoot = null;
+  let svgRoot = null;
 
   let indexData = {
     colors: {
@@ -705,30 +691,16 @@ function renderOrtskenntnisList() {
   }
 
 
-  // Touch Overlay: verhindert Seitenzoom und steuert ViewBox (funktioniert auch mit <object>)
-  function enableOverlayTouchZoom(objEl) {
-    const host = document.getElementById('mapHost');
-    if (!host || !svgRoot || !view.base) return;
+  // iOS/Safari: Pinch-Zoom über GestureEvent (verhindert Seiten-Zoom, zoomt ViewBox)
+  function enableGesturePinchZoom() {
+    if (!svgRoot || !view.base) return;
+    if (enableGesturePinchZoom._bound) return;
+    enableGesturePinchZoom._bound = true;
 
-    // Overlay anlegen
-    let layer = document.getElementById('touchLayer');
-    if (!layer) {
-      layer = document.createElement('div');
-      layer.id = 'touchLayer';
-      host.appendChild(layer);
-    }
-    if (layer.dataset.bound === '1') return;
-    layer.dataset.bound = '1';
-
-    const TAP_MOVE_PX = 10;
-    const TAP_MAX_MS  = 280;
-    const TAP_RADIUS_PX = 18;
-
-    let mode = '';
-    let panStart = null;
-    let panViewStart = null;
-    let pinchStart = null;
-    let tapInfo = null;
+    let active = false;
+    let startVB = null;
+    let startScale = 1;
+    let anchor = { x: 0, y: 0 };
 
     function clamp(vb) {
       const base = view.base;
@@ -737,17 +709,7 @@ function renderOrtskenntnisList() {
       return { x, y, w: vb.w, h: vb.h };
     }
 
-    function dist(t1, t2) {
-      const dx = t1.clientX - t2.clientX;
-      const dy = t1.clientY - t2.clientY;
-      return Math.hypot(dx, dy);
-    }
-
-    function mid(t1, t2) {
-      return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
-    }
-
-    function clientToSvg(x, y) {
+    function clientToSvgXY(x, y) {
       const pt = svgRoot.createSVGPoint();
       pt.x = x; pt.y = y;
       const ctm = svgRoot.getScreenCTM();
@@ -756,125 +718,53 @@ function renderOrtskenntnisList() {
       return { x: sp.x, y: sp.y };
     }
 
-    function findNearestPoint(clientX, clientY) {
-      const doc = objEl && objEl.contentDocument;
-      if (!doc) return null;
-
-      let target = doc.elementFromPoint(clientX, clientY);
-      if (target) {
-        let el = target;
-        for (let i = 0; i < 8; i++) {
-          if (el && el.getAttribute && (el.getAttribute('data-typ') || el.getAttribute('data-type'))) return el;
-          el = el && el.parentElement;
-        }
-      }
-
-      const pts = Array.from(doc.querySelectorAll('[data-typ],[data-type]'));
-      let best = null;
-      let bestD = TAP_RADIUS_PX * TAP_RADIUS_PX;
-      for (const el of pts) {
-        try {
-          const bb = el.getBBox();
-          const cx = bb.x + bb.width / 2;
-          const cy = bb.y + bb.height / 2;
-          const pt = doc.documentElement.createSVGPoint();
-          pt.x = cx; pt.y = cy;
-          const ctm = el.getScreenCTM();
-          if (!ctm) continue;
-          const sp = pt.matrixTransform(ctm);
-          const dx = sp.x - clientX;
-          const dy = sp.y - clientY;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < bestD) { bestD = d2; best = el; }
-        } catch (e) {}
-      }
-      return best;
+    function isInMap(target) {
+      const host = document.getElementById('mapHost');
+      return !!(host && target && (target === host || host.contains(target)));
     }
 
-    function synthClick(clientX, clientY) {
-      const el = findNearestPoint(clientX, clientY);
-      if (!el) return;
-      try {
-        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-      } catch (e) {}
-    }
+    const opts = { passive: false, capture: true };
 
-    function onStart(e) {
-      if (!e.touches) return;
-      if (e.touches.length === 1) {
-        mode = 'pan';
-        const t = e.touches[0];
-        tapInfo = { t0: Date.now(), x0: t.clientX, y0: t.clientY };
-        panStart = { x: t.clientX, y: t.clientY };
-        panViewStart = { ...view.cur };
-      } else if (e.touches.length >= 2) {
-        e.preventDefault();
-        mode = 'pinch';
-        tapInfo = null;
-        const t1 = e.touches[0], t2 = e.touches[1];
-        const m = mid(t1, t2);
-        pinchStart = { d0: dist(t1, t2), vb: { ...view.cur }, midSvg: clientToSvg(m.x, m.y) };
-      }
-    }
+    document.addEventListener('gesturestart', function(e) {
+      if (!svgRoot || !view.cur || !view.base) return;
+      if (!isInMap(e.target)) return;
+      e.preventDefault();
 
-    function onMove(e) {
-      if (!e.touches) return;
-      if (mode === 'pan' && e.touches.length === 1) {
-        const t = e.touches[0];
-        if (tapInfo) {
-          const dx0 = t.clientX - tapInfo.x0;
-          const dy0 = t.clientY - tapInfo.y0;
-          if (Math.hypot(dx0, dy0) > TAP_MOVE_PX) tapInfo.moved = true;
-        }
-        if (tapInfo && !tapInfo.moved) return;
+      active = true;
+      startVB = { ...view.cur };
+      startScale = (typeof e.scale === 'number' && e.scale) ? e.scale : 1;
+      const p = clientToSvgXY(e.clientX, e.clientY);
+      anchor = { x: p.x, y: p.y };
+    }, opts);
 
-        e.preventDefault();
-        const dx = t.clientX - panStart.x;
-        const dy = t.clientY - panStart.y;
-        const rect = svgRoot.getBoundingClientRect();
-        const sx = panViewStart.w / rect.width;
-        const sy = panViewStart.h / rect.height;
-        setViewBox({ x: panViewStart.x - dx * sx, y: panViewStart.y - dy * sy, w: panViewStart.w, h: panViewStart.h });
-      }
+    document.addEventListener('gesturechange', function(e) {
+      if (!active || !startVB || !svgRoot || !view.base) return;
+      if (!isInMap(e.target)) return;
+      e.preventDefault();
 
-      if (mode === 'pinch' && e.touches.length >= 2) {
-        e.preventDefault();
-        const t1 = e.touches[0], t2 = e.touches[1];
-        const d1 = dist(t1, t2);
-        if (d1 < 10) return;
-        const z = pinchStart.d0 / d1;
-        const vb = pinchStart.vb;
-        const p = pinchStart.midSvg;
+      const scaleNow = (typeof e.scale === 'number' && e.scale) ? e.scale : 1;
+      // e.scale > 1 = auseinander (reinzoomen) -> ViewBox kleiner
+      const z = startScale / scaleNow;
 
-        const nx = p.x - (p.x - vb.x) * z;
-        const ny = p.y - (p.y - vb.y) * z;
-        const nw = vb.w * z;
-        const nh = vb.h * z;
-        const minW = view.base.w * 0.02;
-        const maxW = view.base.w * 20;
-        if (nw < minW || nw > maxW) return;
-        setViewBox(clamp({ x: nx, y: ny, w: nw, h: nh }));
-      }
-    }
+      const nw = startVB.w * z;
+      const nh = startVB.h * z;
+      const minW = view.base.w * 0.02;
+      const maxW = view.base.w * 20;
+      if (nw < minW || nw > maxW) return;
 
-    function onEnd(e) {
-      if (mode === 'pan' && tapInfo && !tapInfo.moved) {
-        const dt = Date.now() - tapInfo.t0;
-        if (dt <= TAP_MAX_MS) synthClick(tapInfo.x0, tapInfo.y0);
-      }
-      if (!e.touches || e.touches.length === 0) {
-        mode = '';
-        panStart = null;
-        panViewStart = null;
-        pinchStart = null;
-        tapInfo = null;
-      }
-    }
+      const nx = anchor.x - (anchor.x - startVB.x) * z;
+      const ny = anchor.y - (anchor.y - startVB.y) * z;
 
-    layer.addEventListener('touchstart', onStart, { passive: false });
-    layer.addEventListener('touchmove', onMove, { passive: false });
-    layer.addEventListener('touchend', onEnd, { passive: false });
-    layer.addEventListener('touchcancel', onEnd, { passive: false });
+      setViewBox(clamp({ x: nx, y: ny, w: nw, h: nh }));
+    }, opts);
+
+    document.addEventListener('gestureend', function(e) {
+      if (!active) return;
+      if (!isInMap(e.target)) return;
+      e.preventDefault();
+      active = false;
+      startVB = null;
+    }, opts);
   }
 
 
@@ -953,7 +843,7 @@ function renderOrtskenntnisList() {
     enablePointClickCycle();
     enablePanHandlers();
     enableWheelZoom();
-          enableOverlayTouchZoom(obj);
+          enableGesturePinchZoom();
 
     applySelection();
     renderActiveLines();
