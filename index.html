@@ -109,7 +109,7 @@
 header p{ display:none !important; }
 .zoomHint{ display:none !important; }
 
-/* --- Layout: Vollhöhe (damit die Karte unten nicht abgeschnitten wird) --- */
+/* --- Layout: Vollhöhe --- */
 *,*::before,*::after{box-sizing:border-box;}
 html, body { height: 100%; }
 body { min-height: 100vh; display: flex; flex-direction: column; }
@@ -129,7 +129,7 @@ header { flex: 0 0 auto; }
 <body>
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 12:52 UTC</div>
+  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 12:59 UTC</div>
   <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert …</div>
   <div class="headerBar">
     <div class="hbItem">
@@ -222,6 +222,24 @@ header { flex: 0 0 auto; }
 <div id="toast" class="toast"></div>
 
 <script>
+
+// === BOOTSTRAP_APP_V5 ===================================================
+(function(){
+  var st = document.getElementById('autoloadStatus');
+  function setStatus(msg){ if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; }
+
+  // Zeigt JS-Fehler direkt oben an (wichtig, wenn Script sonst still stoppt)
+  window.addEventListener('error', function(ev){
+    try{ setStatus('JS-Fehler: ' + (ev && ev.message ? ev.message : ev)); }catch(e){}
+  });
+  window.addEventListener('unhandledrejection', function(ev){
+    try{ setStatus('Promise-Fehler: ' + (ev && ev.reason ? (ev.reason.message || ev.reason) : ev)); }catch(e){}
+  });
+
+  setStatus('JS läuft, starte Autoload …');
+})();
+
+
   let svgRoot = null;
 
   let indexData = {
@@ -791,14 +809,14 @@ function renderOrtskenntnisList() {
   renderOrtskenntnisList();
 }
 
-  (function(){ const el = $('svgFile'); if(!el) return; el.addEventListener('change', async (e) => {
+  (function(){var el=$('svgFile'); if(!el) return; el.addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     const txt = await readFileAsText(f);
     embedSvg(txt);
   });
 
-  (function(){ const el = $('indexFile'); if(!el) return; el.addEventListener('change', async (e) => {
+  (function(){var el=$('indexFile'); if(!el) return; el.addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     try {
@@ -1137,13 +1155,13 @@ window.addEventListener('load', function(){
 rebuildRouteList();
 
 
-// === AUTOLOAD_APP_V4 ====================================================
+// === AUTOLOAD_APP_V5 ====================================================
 (function(){
-  const st = document.getElementById('autoloadStatus');
+  var st = document.getElementById('autoloadStatus');
   function setStatus(msg){ if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; }
 
   function abs(rel){
-    const base = window.location.href.split('#')[0];
+    var base = window.location.href.split('#')[0];
     return new URL(rel, base).toString();
   }
 
@@ -1158,11 +1176,11 @@ rebuildRouteList();
   }
 
   async function loadIndex(){
-    const url = abs('assets/index.json');
+    var url = abs('assets/index.json');
     setStatus('lade Index …');
-    const r = await fetchWithTimeout(url, 8000);
+    var r = await fetchWithTimeout(url, 8000);
     if(!r.ok) throw new Error('Index HTTP ' + r.status);
-    const obj = await r.json();
+    var obj = await r.json();
     if(obj && typeof obj === 'object'){
       if (obj.colors) indexData.colors = obj.colors;
       if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
@@ -1172,13 +1190,12 @@ rebuildRouteList();
   }
 
   async function loadSvg(){
-    const url = abs('assets/map.svg');
+    var url = abs('assets/map.svg');
     setStatus('lade SVG …');
-    const r = await fetchWithTimeout(url, 20000);
+    var r = await fetchWithTimeout(url, 20000);
     if(!r.ok) throw new Error('SVG HTTP ' + r.status);
-    const txt = await r.text();
+    var txt = await r.text();
     if(!txt || txt.indexOf('<svg') === -1) throw new Error('SVG Inhalt ungültig');
-
     setStatus('SVG geladen, rendere …');
     await new Promise(res => setTimeout(res, 0));
     embedSvg(txt);
@@ -1189,40 +1206,36 @@ rebuildRouteList();
     if(running) return;
     running = true;
     try{
-      // Index optional
       try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen'); }
       await loadSvg();
       setStatus('fertig');
-    }catch(e){
+    } catch(e){
       setStatus('Fehler: ' + (e && e.message ? e.message : e));
-      const host = document.getElementById('mapHost');
+      var host = document.getElementById('mapHost');
       if(host){
         host.innerHTML = '<div style="color:#111;font-family:system-ui;padding:12px;">'
           + '<b>Automatisches Laden fehlgeschlagen.</b><br>'
           + 'Link-Test: <a href="' + abs('assets/map.svg') + '" target="_blank" rel="noopener">assets/map.svg</a>'
           + '</div>';
       }
-    }finally{
+    } finally {
       running = false;
     }
   }
 
   function schedule(){
-    // sofort und mehrfach
     setTimeout(autoload, 0);
-    setTimeout(autoload, 120);
-    setTimeout(autoload, 600);
-    setTimeout(autoload, 1600);
+    setTimeout(autoload, 150);
+    setTimeout(autoload, 700);
+    setTimeout(autoload, 1700);
   }
 
-  // Event-Hooks
+  // sofort starten
+  schedule();
   document.addEventListener('DOMContentLoaded', schedule);
   window.addEventListener('load', schedule);
-  document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') schedule(); });
   window.addEventListener('pageshow', schedule);
-
-  // sofort starten (auch wenn DOMContentLoaded schon vorbei ist)
-  schedule();
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') schedule(); });
 })();
 
 </script>
