@@ -123,6 +123,7 @@ header { flex: 0 0 auto; }
 <body>
 <header>
   <h1>MEV Streckenkundekarten App</h1>
+  <div class="hint" id="autoloadStatus" style="margin-top:6px;"></div>
 </header>
 
 <div class="wrap">
@@ -143,6 +144,11 @@ header { flex: 0 0 auto; }
    <button class="btn full" id="sendMail">Per E-Mail senden</button>
  </div>
  
+ </div>
+ <div class="hint" style="margin-top:6px;">
+   <b>Hinweis:</b> "Speichern (Datei)" lädt eine JSON-Datei herunter (inkl. Linienstatus und Punkt-Overrides).
+   "Per E-Mail senden" öffnet dein Mailprogramm über <code>mailto:</code> (ohne Anhang, dafür mit Zusammenfassung).
+ </div>
 
 
 <div class="hr"></div>
@@ -1065,15 +1071,21 @@ function openMail(payload) {
 
 
 
-// --- Autoload (ohne Upload-UI): lädt automatisch assets/index.json und assets/map.svg ---
+// --- Autoload (Debug, ohne Upload-UI): lädt assets/index.json und assets/map.svg ---
 async function tryAutoloadAssets(){
-  // Unterpfad-sicher (GitHub Pages): URL relativ zur aktuellen Seite
-  const base = window.location.href.split('#')[0];
-  const idxUrl = new URL('assets/index.json', base).toString();
-  const svgUrl = new URL('assets/map.svg', base).toString();
+  const st = document.getElementById('autoloadStatus');
+  const cleanHref = window.location.href.split('#')[0];
+  const idxUrl = new URL('assets/index.json', cleanHref).toString();
+  const svgUrl = new URL('assets/map.svg', cleanHref).toString();
+
+  function setStatus(msg){ if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; }
+
+  let idxOk = false;
+  let svgOk = false;
 
   // Index
   try {
+    setStatus('lade Index …');
     const r = await fetch(idxUrl, { cache: 'no-store' });
     if (r.ok) {
       const obj = await r.json();
@@ -1082,27 +1094,46 @@ async function tryAutoloadAssets(){
         if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
         if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
         rebuildRouteList();
+        applySelection();
+        renderActiveLines();
+        idxOk = true;
       }
+    } else {
+      setStatus('Index nicht gefunden (' + r.status + '): ' + idxUrl);
     }
-  } catch(e) {}
+  } catch(e) {
+    setStatus('Index-Fehler: ' + (e && e.message ? e.message : e));
+  }
 
   // SVG
   try {
+    setStatus((idxOk ? 'Index ok, ' : '') + 'lade SVG …');
     const r2 = await fetch(svgUrl, { cache: 'no-store' });
     if (r2.ok) {
       const svgText = await r2.text();
       if (svgText && svgText.indexOf('<svg') !== -1) {
         embedSvg(svgText);
+        svgOk = true;
+      } else {
+        setStatus('SVG geladen, aber keine SVG: ' + svgUrl);
       }
+    } else {
+      setStatus('SVG nicht gefunden (' + r2.status + '): ' + svgUrl);
     }
-  } catch(e) {}
+  } catch(e) {
+    setStatus('SVG-Fehler: ' + (e && e.message ? e.message : e));
+  }
+
+  if(idxOk && svgOk) setStatus('Index + SVG ok.');
+  else if(idxOk && !svgOk) setStatus('Index ok, SVG fehlt.');
+  else if(!idxOk && svgOk) setStatus('SVG ok, Index fehlt.');
 }
 
 // iOS/Safari: mehrfach anstossen (Safari + Home-Bildschirm)
 (function(){
   let running = false;
   async function run(){
-    if (running) return;
+    if(running) return;
     running = true;
     try { await tryAutoloadAssets(); } finally { running = false; }
   }
@@ -1113,7 +1144,7 @@ async function tryAutoloadAssets(){
   }
   document.addEventListener('DOMContentLoaded', schedule);
   document.addEventListener('visibilitychange', function(){
-    if (document.visibilityState === 'visible') schedule();
+    if(document.visibilityState === 'visible') schedule();
   });
   window.addEventListener('pageshow', schedule);
   schedule();
@@ -1156,9 +1187,7 @@ window.addEventListener('load', function(){
     openMail(payload);
   });
 
-  try { sf.value = ''; } catch(e) {}
   });
-});
 
 rebuildRouteList();
 </script>
