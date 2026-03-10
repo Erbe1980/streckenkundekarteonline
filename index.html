@@ -2,7 +2,7 @@
 <html lang="de-CH">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>MEV Streckenkundekarten App</title>
   <style>
     :root {
@@ -125,13 +125,7 @@ header { flex: 0 0 auto; }
 
 
 
-/* --- iOS Touch: Seite nicht zoomen/scrollen (Best effort) --- */
-html, body {
-  height: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-  -webkit-text-size-adjust: 100%;
-}
+/* Touch: Karte statt Seite zoomen (iOS/Safari) */
 .mapWrap, #mapHost {
   touch-action: none;
   overscroll-behavior: none;
@@ -155,7 +149,7 @@ html, body {
 
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" P26-03-10 16:51 UTC</div>
+  <div class="hint" P26-03-10 17:09 UTC</div>
   <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert</div>
 </header>
 
@@ -253,15 +247,7 @@ html, body {
 })();
 
 
-  
-// === IOS_GESTURE_BLOCK_V3 ==============================================
-(function(){
-  const opts = { passive: false, capture: true };
-  document.addEventListener('gesturestart', function(e){ e.preventDefault(); }, opts);
-  document.addEventListener('gesturechange', function(e){ e.preventDefault(); }, opts);
-  document.addEventListener('gestureend', function(e){ e.preventDefault(); }, opts);
-})();
-let svgRoot = null;
+  let svgRoot = null;
 
   let indexData = {
     colors: {
@@ -705,42 +691,41 @@ function renderOrtskenntnisList() {
   }
 
 
-  // Touch: 1 Finger = Pan, 2 Finger = Zoom (Pinch). Tap = nächster Punkt.
-  function enableTouchPanZoomV3(objEl) {
+  // Touch (iPad/iPhone): 1 Finger = Pan, 2 Finger = Pinch-Zoom (ViewBox).
+  // Wichtig: nutzt Touch-Events auf #mapHost, damit es auch in <object> zuverlässig funktioniert.
+  function enableTouchPanZoomTouch(objEl) {
     if (!svgRoot || !view.base) return;
 
-    // iOS: auf mapHost 2-Finger-Touch standardmässig blockieren, damit nicht die Seite zoomt
     const host = document.getElementById('mapHost');
-    if (host && !host.dataset.boundTouchBlock) {
-      host.dataset.boundTouchBlock = '1';
-      host.addEventListener('touchstart', (e)=>{ if(e.touches && e.touches.length>1) e.preventDefault(); }, {passive:false, capture:true});
-      host.addEventListener('touchmove',  (e)=>{ if(e.touches && e.touches.length>1) e.preventDefault(); }, {passive:false, capture:true});
-    }
-
-    try { svgRoot.style.touchAction = 'none'; } catch (e) {}
-
-    const pointers = new Map();
-    let dragging = false;
-    let panStart = null;
-    let panViewStart = null;
-    let pinchStart = null;
-    let tapInfo = null;
+    if (!host) return;
+    if (host.dataset.touchBound === '1') return;
+    host.dataset.touchBound = '1';
 
     const TAP_MOVE_PX = 10;
     const TAP_MAX_MS = 280;
     const TAP_RADIUS_PX = 18;
 
-    let rafPending = false;
-    let rafPan = null;
-    let rafPinch = null;
+    let mode = ''; // '', 'pan', 'pinch'
+    let panStart = null;
+    let panViewStart = null;
+    let pinchStart = null;
+    let tapInfo = null;
 
-    function dist(a, b) {
-      const dx = a.x - b.x, dy = a.y - b.y;
+    function clamp(vb) {
+      const base = view.base;
+      const x = Math.min(Math.max(vb.x, base.x), base.x + base.w - vb.w);
+      const y = Math.min(Math.max(vb.y, base.y), base.y + base.h - vb.h);
+      return { x, y, w: vb.w, h: vb.h };
+    }
+
+    function dist(t1, t2) {
+      const dx = t1.clientX - t2.clientX;
+      const dy = t1.clientY - t2.clientY;
       return Math.hypot(dx, dy);
     }
 
-    function midpoint(a, b) {
-      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    function mid(t1, t2) {
+      return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
     }
 
     function clientToSvg(x, y) {
@@ -752,53 +737,10 @@ function renderOrtskenntnisList() {
       return { x: sp.x, y: sp.y };
     }
 
-    function clamp(vb) {
-      const base = view.base;
-      const x = Math.min(Math.max(vb.x, base.x), base.x + base.w - vb.w);
-      const y = Math.min(Math.max(vb.y, base.y), base.y + base.h - vb.h);
-      return { x, y, w: vb.w, h: vb.h };
-    }
-
-    function panApply(p) {
-      if (!panStart || !panViewStart) return;
-      const dx = p.x - panStart.x;
-      const dy = p.y - panStart.y;
-      const rect = svgRoot.getBoundingClientRect();
-      const sx = panViewStart.w / rect.width;
-      const sy = panViewStart.h / rect.height;
-      setViewBox({ x: panViewStart.x - dx * sx, y: panViewStart.y - dy * sy, w: panViewStart.w, h: panViewStart.h });
-    }
-
-    function pinchApply(p1, p2) {
-      if (!pinchStart) return;
-      const d1 = dist(p1, p2);
-      if (d1 < 10) return;
-      const z = pinchStart.d0 / d1;
-      const vb = pinchStart.vb;
-      const p = pinchStart.midSvg;
-      const nx = p.x - (p.x - vb.x) * z;
-      const ny = p.y - (p.y - vb.y) * z;
-      const nw = vb.w * z;
-      const nh = vb.h * z;
-      const minW = view.base.w * 0.02;
-      const maxW = view.base.w * 20;
-      if (nw < minW || nw > maxW) return;
-      setViewBox(clamp({ x: nx, y: ny, w: nw, h: nh }));
-    }
-
-    function requestFrame() {
-      if (rafPending) return;
-      rafPending = true;
-      requestAnimationFrame(() => {
-        rafPending = false;
-        if (rafPinch) { pinchApply(rafPinch[0], rafPinch[1]); rafPinch = null; }
-        else if (rafPan) { panApply(rafPan); rafPan = null; }
-      });
-    }
-
     function findNearestPoint(clientX, clientY) {
       const doc = objEl && objEl.contentDocument;
       if (!doc) return null;
+
       let target = doc.elementFromPoint(clientX, clientY);
       if (target) {
         let el = target;
@@ -807,14 +749,15 @@ function renderOrtskenntnisList() {
           el = el && el.parentElement;
         }
       }
+
       const pts = Array.from(doc.querySelectorAll('[data-typ],[data-type]'));
       let best = null;
       let bestD = TAP_RADIUS_PX * TAP_RADIUS_PX;
       for (const el of pts) {
         try {
           const bb = el.getBBox();
-          const cx = bb.x + bb.width/2;
-          const cy = bb.y + bb.height/2;
+          const cx = bb.x + bb.width / 2;
+          const cy = bb.y + bb.height / 2;
           const pt = doc.documentElement.createSVGPoint();
           pt.x = cx; pt.y = cy;
           const ctm = el.getScreenCTM();
@@ -822,7 +765,7 @@ function renderOrtskenntnisList() {
           const sp = pt.matrixTransform(ctm);
           const dx = sp.x - clientX;
           const dy = sp.y - clientY;
-          const d2 = dx*dx + dy*dy;
+          const d2 = dx * dx + dy * dy;
           if (d2 < bestD) { bestD = d2; best = el; }
         } catch (e) {}
       }
@@ -832,77 +775,101 @@ function renderOrtskenntnisList() {
     function synthClick(clientX, clientY) {
       const el = findNearestPoint(clientX, clientY);
       if (!el) return;
-      try { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); } catch (e) {}
+      try {
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      } catch (e) {}
     }
 
-    svgRoot.addEventListener('pointerdown', (ev) => {
-      if (ev.pointerType !== 'touch') return;
-      pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-      try { svgRoot.setPointerCapture(ev.pointerId); } catch (e) {}
-
-      if (pointers.size === 1) {
-        const p0 = Array.from(pointers.values())[0];
-        dragging = false;
-        tapInfo = { t: Date.now(), x0: p0.x, y0: p0.y };
-        panStart = { x: p0.x, y: p0.y };
+    function onStart(e) {
+      if (!e.touches) return;
+      if (e.touches.length === 1) {
+        mode = 'pan';
+        const t = e.touches[0];
+        tapInfo = { t0: Date.now(), x0: t.clientX, y0: t.clientY };
+        panStart = { x: t.clientX, y: t.clientY };
         panViewStart = { ...view.cur };
-      } else if (pointers.size === 2) {
-        ev.preventDefault();
-        dragging = true;
+      } else if (e.touches.length >= 2) {
+        // Pinch: Seitenzoom verhindern
+        e.preventDefault();
+        mode = 'pinch';
         tapInfo = null;
-        const [a, b] = Array.from(pointers.values());
-        const mid = midpoint(a, b);
-        pinchStart = { d0: dist(a, b), midSvg: clientToSvg(mid.x, mid.y), vb: { ...view.cur } };
+        const t1 = e.touches[0], t2 = e.touches[1];
+        const m = mid(t1, t2);
+        pinchStart = {
+          d0: dist(t1, t2),
+          vb: { ...view.cur },
+          midSvg: clientToSvg(m.x, m.y)
+        };
       }
-    }, { passive: false });
+    }
 
-    svgRoot.addEventListener('pointermove', (ev) => {
-      if (ev.pointerType !== 'touch') return;
-      if (!pointers.has(ev.pointerId)) return;
-      pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-
-      if (pointers.size === 1) {
-        const p = Array.from(pointers.values())[0];
+    function onMove(e) {
+      if (!e.touches) return;
+      if (mode === 'pan' && e.touches.length === 1) {
+        const t = e.touches[0];
+        // Drag erst nach Schwelle
         if (tapInfo) {
-          const dx = p.x - tapInfo.x0, dy = p.y - tapInfo.y0;
-          if (Math.hypot(dx, dy) > TAP_MOVE_PX) dragging = true;
+          const dx = t.clientX - tapInfo.x0;
+          const dy = t.clientY - tapInfo.y0;
+          if (Math.hypot(dx, dy) > TAP_MOVE_PX) {
+            // jetzt echtes Pan
+            tapInfo.moved = true;
+          }
         }
-        if (dragging) {
-          ev.preventDefault();
-          rafPan = p;
-          requestFrame();
-        }
-      } else if (pointers.size === 2) {
-        ev.preventDefault();
-        const [a, b] = Array.from(pointers.values());
-        rafPinch = [a, b];
-        requestFrame();
-      }
-    }, { passive: false });
+        if (tapInfo && !tapInfo.moved) return; // noch Tap
 
-    function end(ev) {
-      if (ev.pointerType !== 'touch') return;
-      const last = pointers.get(ev.pointerId);
-      pointers.delete(ev.pointerId);
-
-      if (!dragging && tapInfo && last) {
-        const dt = Date.now() - tapInfo.t;
-        const dx = last.x - tapInfo.x0, dy = last.y - tapInfo.y0;
-        if (dt <= TAP_MAX_MS && Math.hypot(dx, dy) <= TAP_MOVE_PX) synthClick(last.x, last.y);
+        e.preventDefault();
+        const dx = t.clientX - panStart.x;
+        const dy = t.clientY - panStart.y;
+        const rect = svgRoot.getBoundingClientRect();
+        const sx = panViewStart.w / rect.width;
+        const sy = panViewStart.h / rect.height;
+        setViewBox({ x: panViewStart.x - dx * sx, y: panViewStart.y - dy * sy, w: panViewStart.w, h: panViewStart.h });
       }
 
-      if (pointers.size < 2) pinchStart = null;
-      if (pointers.size === 0) {
-        dragging = false;
+      if (mode === 'pinch' && e.touches.length >= 2) {
+        e.preventDefault();
+        const t1 = e.touches[0], t2 = e.touches[1];
+        const d1 = dist(t1, t2);
+        if (d1 < 10) return;
+        const z = pinchStart.d0 / d1;
+        const vb = pinchStart.vb;
+        const p = pinchStart.midSvg;
+
+        const nx = p.x - (p.x - vb.x) * z;
+        const ny = p.y - (p.y - vb.y) * z;
+        const nw = vb.w * z;
+        const nh = vb.h * z;
+
+        const minW = view.base.w * 0.02;
+        const maxW = view.base.w * 20;
+        if (nw < minW || nw > maxW) return;
+
+        setViewBox(clamp({ x: nx, y: ny, w: nw, h: nh }));
+      }
+    }
+
+    function onEnd(e) {
+      // Tap auslösen
+      if (mode === 'pan' && tapInfo && !tapInfo.moved) {
+        const dt = Date.now() - tapInfo.t0;
+        if (dt <= TAP_MAX_MS) {
+          synthClick(tapInfo.x0, tapInfo.y0);
+        }
+      }
+      if (!e.touches || e.touches.length === 0) {
+        mode = '';
         panStart = null;
         panViewStart = null;
-        tapInfo = null;
         pinchStart = null;
+        tapInfo = null;
       }
     }
 
-    svgRoot.addEventListener('pointerup', end, { passive: true });
-    svgRoot.addEventListener('pointercancel', end, { passive: true });
+    host.addEventListener('touchstart', onStart, { passive: false });
+    host.addEventListener('touchmove', onMove, { passive: false });
+    host.addEventListener('touchend', onEnd, { passive: false });
+    host.addEventListener('touchcancel', onEnd, { passive: false });
   }
 
 
@@ -981,7 +948,7 @@ function renderOrtskenntnisList() {
     enablePointClickCycle();
     enablePanHandlers();
     enableWheelZoom();
-          enableTouchPanZoomV3(obj);
+          enableTouchPanZoomTouch(obj);
 
     applySelection();
     renderActiveLines();
