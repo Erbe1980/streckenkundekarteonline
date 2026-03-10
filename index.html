@@ -104,7 +104,7 @@
 
 
 /* --- App-Modus: Upload-UI ausblenden --- */
-.headerBar, #svgFile, #indexFile, #stateFile { display:none !important; }
+.headerBar, #svgFile, #indexFile, #stateFile, #sendMail { display:none !important; }
 header p { display:none !important; }
 .zoomHint { display:none !important; }
 
@@ -122,20 +122,19 @@ header { flex: 0 0 auto; }
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="MEV Streckenkundekarten App" />
-  <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="theme-color" content="#0b1220" />
 
 </head>
 <body>
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div id="autoloadStatus" class="hint" style="display:none; margin-top:6px;"></div>
+  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 12:29 UTC</div>
+  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> startet …</div>
 </header>
 
 <div class="wrap">
   <section class="panel">
-<h2>Personendaten & Speichern</h2>
+<h2>2) Personendaten & Speichern</h2>
  <div class="row">
    <label>Name</label>
    <input id="nachname" type="text" autocomplete="family-name" placeholder="Name" />
@@ -162,7 +161,7 @@ header { flex: 0 0 auto; }
 
 
 <div class="hr"></div>
-<h2>Strecke wählen & markieren</h2>
+<h2>3) Strecke wählen & markieren</h2>
     <div class="row">
       <label>Auswahl</label>
       <div id="selectedRoute" class="hint"></div>
@@ -1122,40 +1121,45 @@ window.addEventListener('load', function(){
 rebuildRouteList();
 
 
-// === Autoload (App-Modus) ==============================================
-// Lädt automatisch assets/map.svg und assets/index.json.
-// Debug: URL mit ?debug=1 zeigt Status oben an.
+// === Autoload (GitHub Pages) ===========================================
+// Erwartete Dateien:
+// - assets/map.svg
+// - assets/index.json (optional)
 (function(){
-  const params = new URLSearchParams(window.location.search || '');
-  const debug = params.get('debug') === '1';
   const st = document.getElementById('autoloadStatus');
-  function setStatus(msg){
-    if(!st) return;
-    if(debug){ st.style.display = 'block'; st.textContent = msg; }
+  function setStatus(msg){ if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; }
+
+  function absUrl(rel){
+    const base = window.location.href.split('#')[0];
+    return new URL(rel, base).toString();
   }
 
   async function loadIndex(){
-    const base = new URL('.', window.location.href.split('#')[0]);
-    const url = new URL('assets/index.json', base).toString();
-    setStatus('Lade Index …');
+    const url = absUrl('assets/index.json');
+    setStatus('lade Index …');
     const r = await fetch(url, { cache: 'no-store' });
-    if(!r.ok) throw new Error('Index HTTP ' + r.status);
+    if(!r.ok) throw new Error('Index HTTP ' + r.status + ' (' + url + ')');
     const obj = await r.json();
     if(obj && typeof obj === 'object'){
       if (obj.colors) indexData.colors = obj.colors;
       if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
       if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
+      rebuildRouteList();
     }
   }
 
   async function loadSvg(){
-    const base = new URL('.', window.location.href.split('#')[0]);
-    const url = new URL('assets/map.svg', base).toString();
-    setStatus('Lade SVG …');
+    const url = absUrl('assets/map.svg');
+    setStatus('lade SVG …');
     const r = await fetch(url, { cache: 'no-store' });
-    if(!r.ok) throw new Error('SVG HTTP ' + r.status);
+    if(!r.ok) throw new Error('SVG HTTP ' + r.status + ' (' + url + ')');
     const txt = await r.text();
-    if(!txt || txt.indexOf('<svg') === -1) throw new Error('SVG Inhalt ungültig');
+    if(!txt || txt.indexOf('<svg') === -1){
+      // Hinweis auf Git LFS Pointer
+      const lfs = (txt || '').trim().startsWith('version https://git-lfs.github.com/spec/v1');
+      if(lfs) throw new Error('SVG ist Git-LFS-Pointer (nicht der Inhalt). Datei ohne LFS hochladen.');
+      throw new Error('SVG Inhalt ungültig (keine <svg>-Wurzel).');
+    }
     embedSvg(txt);
   }
 
@@ -1164,24 +1168,24 @@ rebuildRouteList();
     if(running) return;
     running = true;
     try{
-      // Index zuerst (falls vorhanden)
-      try{ await loadIndex(); } catch(e){ setStatus('Index nicht geladen: ' + (e && e.message ? e.message : e)); }
-      // SVG ist Pflicht
+      // Index optional
+      try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen: ' + (e && e.message ? e.message : e)); }
       await loadSvg();
-      setStatus('Index + SVG geladen.');
+      setStatus('SVG geladen.');
     }catch(e){
-      setStatus('Autoload fehlgeschlagen: ' + (e && e.message ? e.message : e));
-      // Fallback-Text im Kartenbereich
-      try{
-        const host = document.getElementById('mapHost');
-        if(host){
-          host.innerHTML = '<div style="color:#111;font-family:system-ui;padding:12px;">'
-            + '<b>SVG konnte nicht automatisch geladen werden.</b><br>'
-            + 'Prüfe <a href="assets/map.svg" target="_blank" rel="noopener">assets/map.svg</a>.'
-            + (debug ? '<br><br><span style="color:#555;">'+ String(e && e.message ? e.message : e) +'</span>' : '')
-            + '</div>';
-        }
-      }catch(_){ }
+      setStatus('Fehler: ' + (e && e.message ? e.message : e));
+      // Zeige Links zum Testen
+      const host = document.getElementById('mapHost');
+      if(host){
+        const a1 = absUrl('assets/map.svg');
+        const a2 = absUrl('assets/index.json');
+        host.innerHTML = '<div style="color:#111;font-family:system-ui;padding:12px;">'
+          + '<b>Automatisches Laden fehlgeschlagen.</b><br>'
+          + 'Teste diese Links direkt:<br>'
+          + '<a href="' + a1 + '" target="_blank" rel="noopener">assets/map.svg</a><br>'
+          + '<a href="' + a2 + '" target="_blank" rel="noopener">assets/index.json</a>'
+          + '</div>';
+      }
     }finally{
       running = false;
     }
@@ -1189,9 +1193,10 @@ rebuildRouteList();
 
   function schedule(){
     setTimeout(autoload, 50);
-    setTimeout(autoload, 250);
-    setTimeout(autoload, 900);
+    setTimeout(autoload, 300);
+    setTimeout(autoload, 1200);
   }
+
   document.addEventListener('DOMContentLoaded', schedule);
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState === 'visible') schedule();
