@@ -103,12 +103,19 @@
 
 
 
-/* --- App-Modus --- */
+/* --- App-Modus: Upload-UI ausblenden --- */
+.headerBar{ display:none !important; }
+#svgFile,#indexFile,#stateFile{ display:none !important; }
 header p{ display:none !important; }
-.zoomHint{ display:none !important; }
 
-/* Upload-Elemente komplett ausblenden (bleiben für JS als hidden Inputs vorhanden) */
-#stateFile{ display:none !important; }
+/* Zoom-Hinweis im App-Modus (Touch) */
+.zoomHint{
+  position:absolute; left:10px; top:10px;
+  background: rgba(255,255,255,0.92);
+  color:#111; border:1px solid rgba(0,0,0,0.15);
+  padding:6px 8px; border-radius:10px;
+  font-size:12px;
+}
 
 /* --- Layout: Vollhöhe --- */
 *,*::before,*::after{box-sizing:border-box;}
@@ -118,31 +125,24 @@ header { flex: 0 0 auto; }
 .wrap { flex: 1 1 auto; min-height: 0; }
 .mapWrap { min-height: 0; height: 100%; }
 #mapHost { min-height: 0; height: 100%; }
+
+/* SVG via <object> */
 #svgObj{ width:100%; height:100%; display:block; border:0; }
 
-/* Unsichtbarer Fallback-Container */
-#hiddenFileInputs{ position:fixed; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden; }
+/* Kleine Touch-Controls */
+#touchControls{ position:absolute; right:10px; top:10px; display:flex; gap:8px; z-index:30; }
+.tbtn{ width:44px; height:44px; border-radius:12px; border:1px solid rgba(0,0,0,0.18);
+  background: rgba(255,255,255,0.92); color:#111; font-weight:800; font-size:18px; cursor:pointer;
+}
+.tbtn:active{ transform: translateY(1px); }
 
 </style>
-
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="MEV Streckenkundekarten App" />
-  <meta name="theme-color" content="#0b1220" />
-
 </head>
 <body>
-
-<div id="hiddenFileInputs" aria-hidden="true">
-  <input id="svgFile" type="file" />
-  <input id="indexFile" type="file" accept="application/json,.json" />
-  <input id="stateFile" type="file" accept="application/json,.json" />
-</div>
-
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 14:28 UTC</div>
-  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert</div>
+  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 14:33 UTC</div>
+  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Status:</b> bereit</div>
 </header>
 
 <div class="wrap">
@@ -215,7 +215,12 @@ header { flex: 0 0 auto; }
 </section>
 
   <section class="mapWrap">
-    <div class="zoomHint">Zoom: Mausrad · Pan: Alt+Drag / Mitteltaste</div>
+    <div class="zoomHint">Zoom: 2 Finger · Pan: 1 Finger</div>
+    <div id=\"touchControls\" aria-label=\"Karte steuern\">
+      <button class=\"tbtn\" id=\"zoomIn\" title=\"Zoom +\">+</button>
+      <button class=\"tbtn\" id=\"zoomOut\" title=\"Zoom -\">−</button>
+      <button class=\"tbtn\" id=\"zoomReset\" title=\"Ansicht\">⟳</button>
+    </div>
     <div id="mapHost">
       <div style="color:#111; font-family: system-ui; padding:12px;">
         <b>SVG noch nicht geladen.</b><br>
@@ -229,13 +234,13 @@ header { flex: 0 0 auto; }
 
 <script>
 
-// === BOOTSTRAP_APP_V9 ===================================================
+// === APP_BOOT ===========================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
-  const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
+  const setStatus = (msg) => { if(st) st.innerHTML = '<b>Status:</b> ' + msg; };
   window.addEventListener('error', (ev) => { try{ setStatus('JS-Fehler: ' + (ev && ev.message ? ev.message : ev)); }catch(e){} });
   window.addEventListener('unhandledrejection', (ev) => { try{ setStatus('Promise-Fehler: ' + (ev && ev.reason ? (ev.reason.message || ev.reason) : ev)); }catch(e){} });
-  setStatus('JS läuft');
+  setStatus('initialisiert');
 })();
 
 
@@ -808,19 +813,10 @@ function renderOrtskenntnisList() {
   renderOrtskenntnisList();
 }
 
-  $('svgFile').addEventListener('change', async (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    const txt = await readFileAsText(f);
-    embedSvg(txt);
+  embedSvg(txt);
   });
 
-  $('indexFile').addEventListener('change', async (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    try {
-      const txt = await readFileAsText(f);
-      const obj = JSON.parse(txt);
+  const obj = JSON.parse(txt);
       if (obj.colors) indexData.colors = obj.colors;
       if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
       if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
@@ -1149,27 +1145,15 @@ window.addEventListener('load', function(){
     openMail(payload);
   });
 
-  var sf = $('stateFile');
-  if (sf) sf.addEventListener('change', function(ev){
-    var f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
-    if (!f) return;
-    loadStateFromFile(f)
-      .then(function(payload){
-        if (applyLoadedPayload(payload)) { toast('Streckenkundekarte geladen.'); }
-        else { toast('Datei ist keine gültige Streckenkundekarte.'); }
-      })
-      .catch(function(err){ console.error(err); toast('JSON konnte nicht gelesen werden.'); });
-    try { sf.value = ''; } catch(e) {}
   });
-});
 
 rebuildRouteList();
 
 
-// === AUTOLOAD_APP_V9 ====================================================
+// === APP_AUTOLOAD_TOUCH =================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
-  const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
+  const setStatus = (msg) => { if(st) st.innerHTML = '<b>Status:</b> ' + msg; };
 
   function abs(rel){
     const base = window.location.href.split('#')[0];
@@ -1187,47 +1171,199 @@ rebuildRouteList();
       if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
       if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
       rebuildRouteList();
-      applySelection();
-      renderActiveLines();
     }
+  }
+
+  function initSvgFromObject(obj){
+    const doc = obj.contentDocument;
+    if(!doc) throw new Error('contentDocument leer');
+    const svg = doc.querySelector('svg');
+    if(!svg) throw new Error('keine <svg>-Wurzel');
+
+    svgRoot = svg;
+    svgRoot.style.width = '100%';
+    svgRoot.style.height = '100%';
+    svgRoot.style.display = 'block';
+    svgRoot.style.maxWidth = '100%';
+
+    // wichtig für Touch: Browser-Gesten auf SVG verhindern
+    try{ svgRoot.style.touchAction = 'none'; } catch(e){}
+    try{
+      svgRoot.addEventListener('touchmove', (e)=>e.preventDefault(), {passive:false});
+    } catch(e){}
+
+    view.base = getInitialViewBox(svgRoot);
+    setViewBox({ ...view.base });
+
+    enablePointClickCycle();
+    enableWheelZoom();
+
+    // neue Touch Pan/Zoom
+    enableTouchPanZoom();
+
+    applySelection();
+    renderActiveLines();
+  }
+
+  function enableTouchPanZoom(){
+    if(!svgRoot) return;
+
+    const pointers = new Map();
+    let panStart = null;
+    let panViewStart = null;
+    let pinchStart = null;
+
+    function dist(a,b){
+      const dx=a.x-b.x, dy=a.y-b.y;
+      return Math.hypot(dx,dy);
+    }
+
+    function midpoint(a,b){
+      return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 };
+    }
+
+    function clientToSvg(x,y){
+      const pt = svgRoot.createSVGPoint();
+      pt.x = x; pt.y = y;
+      const ctm = svgRoot.getScreenCTM();
+      if(!ctm) return {x:0,y:0};
+      const sp = pt.matrixTransform(ctm.inverse());
+      return {x:sp.x,y:sp.y};
+    }
+
+    function startPan(p){
+      panStart = {x:p.x, y:p.y};
+      panViewStart = { ...view.cur };
+    }
+
+    function doPan(p){
+      if(!panStart || !panViewStart) return;
+      const dx = p.x - panStart.x;
+      const dy = p.y - panStart.y;
+      const rect = svgRoot.getBoundingClientRect();
+      const sx = panViewStart.w / rect.width;
+      const sy = panViewStart.h / rect.height;
+      setViewBox({
+        x: panViewStart.x - dx * sx,
+        y: panViewStart.y - dy * sy,
+        w: panViewStart.w,
+        h: panViewStart.h
+      });
+    }
+
+    function startPinch(p1,p2){
+      const d0 = dist(p1,p2);
+      const mid = midpoint(p1,p2);
+      const sp = clientToSvg(mid.x, mid.y);
+      pinchStart = { d0, midClient: mid, midSvg: sp, vb: { ...view.cur } };
+    }
+
+    function doPinch(p1,p2){
+      if(!pinchStart) return;
+      const d1 = dist(p1,p2);
+      if(d1 < 10) return;
+      const z = pinchStart.d0 / d1; // >1 = zoom in
+      const vb = pinchStart.vb;
+      const p = pinchStart.midSvg;
+
+      const nx = p.x - (p.x - vb.x) * z;
+      const ny = p.y - (p.y - vb.y) * z;
+      const nw = vb.w * z;
+      const nh = vb.h * z;
+
+      const minW = view.base.w * 0.02;
+      const maxW = view.base.w * 20;
+      if(nw < minW || nw > maxW) return;
+
+      setViewBox({ x:nx, y:ny, w:nw, h:nh });
+    }
+
+    function resetGestures(){
+      panStart = null;
+      panViewStart = null;
+      pinchStart = null;
+    }
+
+    svgRoot.addEventListener('pointerdown', (ev)=>{
+      if(ev.pointerType !== 'touch') return;
+      ev.preventDefault();
+      pointers.set(ev.pointerId, {x: ev.clientX, y: ev.clientY});
+      try{ svgRoot.setPointerCapture(ev.pointerId); }catch(e){}
+
+      if(pointers.size === 1){
+        const p = Array.from(pointers.values())[0];
+        startPan(p);
+      }
+      if(pointers.size === 2){
+        const [a,b] = Array.from(pointers.values());
+        startPinch(a,b);
+      }
+    }, {passive:false});
+
+    svgRoot.addEventListener('pointermove', (ev)=>{
+      if(ev.pointerType !== 'touch') return;
+      if(!pointers.has(ev.pointerId)) return;
+      ev.preventDefault();
+      pointers.set(ev.pointerId, {x: ev.clientX, y: ev.clientY});
+
+      if(pointers.size === 1){
+        const p = Array.from(pointers.values())[0];
+        doPan(p);
+      }
+      if(pointers.size === 2){
+        const [a,b] = Array.from(pointers.values());
+        doPinch(a,b);
+      }
+    }, {passive:false});
+
+    function end(ev){
+      if(ev.pointerType !== 'touch') return;
+      pointers.delete(ev.pointerId);
+      if(pointers.size < 2) pinchStart = null;
+      if(pointers.size === 0) resetGestures();
+    }
+
+    svgRoot.addEventListener('pointerup', end, {passive:true});
+    svgRoot.addEventListener('pointercancel', end, {passive:true});
+
+    // Buttons
+    const zin = document.getElementById('zoomIn');
+    const zout = document.getElementById('zoomOut');
+    const zreset = document.getElementById('zoomReset');
+
+    function zoom(f){
+      if(!view.cur || !view.base) return;
+      const vb = { ...view.cur };
+      const cx = vb.x + vb.w/2;
+      const cy = vb.y + vb.h/2;
+      const nw = vb.w * f;
+      const nh = vb.h * f;
+      const nx = cx - nw/2;
+      const ny = cy - nh/2;
+      const minW = view.base.w * 0.02;
+      const maxW = view.base.w * 20;
+      if(nw < minW || nw > maxW) return;
+      setViewBox({ x:nx, y:ny, w:nw, h:nh });
+    }
+
+    if(zin) zin.addEventListener('click', ()=>zoom(0.85));
+    if(zout) zout.addEventListener('click', ()=>zoom(1.18));
+    if(zreset) zreset.addEventListener('click', ()=>{ if(view.base) setViewBox({ ...view.base }); });
   }
 
   function loadSvgViaObject(){
     return new Promise((resolve, reject) => {
       const host = document.getElementById('mapHost');
       if(!host) return reject(new Error('mapHost fehlt'));
-
       host.innerHTML = '<object id="svgObj" type="image/svg+xml"></object>';
       const obj = document.getElementById('svgObj');
       if(!obj) return reject(new Error('svgObj fehlt'));
 
       obj.addEventListener('load', () => {
-        try{
-          const doc = obj.contentDocument;
-          if(!doc) throw new Error('contentDocument leer');
-          const svg = doc.querySelector('svg');
-          if(!svg) throw new Error('keine <svg>-Wurzel');
-
-          svgRoot = svg;
-          svgRoot.style.width = '100%';
-          svgRoot.style.height = '100%';
-          svgRoot.style.display = 'block';
-          svgRoot.style.maxWidth = '100%';
-
-          view.base = getInitialViewBox(svgRoot);
-          setViewBox({ ...view.base });
-          rebuildRouteList();
-          enablePointClickCycle();
-          enablePanHandlers();
-          enableWheelZoom();
-          applySelection();
-          renderActiveLines();
-
-          resolve();
-        } catch(e){ reject(e); }
+        try{ initSvgFromObject(obj); resolve(); }
+        catch(e){ reject(e); }
       });
       obj.addEventListener('error', () => reject(new Error('object load error')));
-
       obj.data = abs('assets/map.svg');
     });
   }
@@ -1238,18 +1374,11 @@ rebuildRouteList();
     running = true;
     try{
       try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen'); }
-      setStatus('lade SVG …');
+      setStatus('lade Karte …');
       await loadSvgViaObject();
-      setStatus('fertig');
+      setStatus('bereit');
     } catch(e){
       setStatus('Fehler: ' + (e && e.message ? e.message : e));
-      const host = document.getElementById('mapHost');
-      if(host){
-        host.innerHTML = '<div style="color:#111;font-family:system-ui;padding:12px;">'
-          + '<b>Automatisches Laden fehlgeschlagen.</b><br>'
-          + 'Teste direkt: <a href="' + abs('assets/map.svg') + '" target="_blank" rel="noopener">assets/map.svg</a>'
-          + '</div>';
-      }
     } finally {
       running = false;
     }
@@ -1257,15 +1386,12 @@ rebuildRouteList();
 
   function schedule(){
     setTimeout(autoload, 0);
-    setTimeout(autoload, 250);
-    setTimeout(autoload, 1200);
+    setTimeout(autoload, 200);
+    setTimeout(autoload, 900);
   }
 
   schedule();
-  document.addEventListener('DOMContentLoaded', schedule);
-  window.addEventListener('load', schedule);
   window.addEventListener('pageshow', schedule);
-  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') schedule(); });
 })();
 
 </script>
