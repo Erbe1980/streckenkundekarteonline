@@ -103,9 +103,9 @@
 
 
 
-/* --- App-Modus: Upload-UI ausblenden (Elemente bleiben im DOM) --- */
+/* --- App-Modus: Upload-UI ausblenden --- */
 .headerBar{ display:none !important; }
-#stateFile{ display:none !important; }
+#svgFile,#indexFile,#stateFile{ display:none !important; }
 header p{ display:none !important; }
 .zoomHint{ display:none !important; }
 
@@ -117,8 +117,6 @@ header { flex: 0 0 auto; }
 .wrap { flex: 1 1 auto; min-height: 0; }
 .mapWrap { min-height: 0; height: 100%; }
 #mapHost { min-height: 0; height: 100%; }
-
-/* SVG als <object> im Host */
 #svgObj{ width:100%; height:100%; display:block; border:0; }
 
 </style>
@@ -132,14 +130,8 @@ header { flex: 0 0 auto; }
 <body>
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 13:59 UTC</div>
-  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> bereit</div>
-  <div class="headerBar">
-    <div class="hbItem">
-      <label for="svgFile">1) SVG-Datei</label>
-      <input id="svgFile" type="file" />
-    </div>
-    
+  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 14:08 UTC</div>
+  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert …</div>
 </header>
 
 <div class="wrap">
@@ -226,13 +218,13 @@ header { flex: 0 0 auto; }
 
 <script>
 
-// === BOOTSTRAP_APP_V6 ===================================================
+// === BOOTSTRAP_APP_V7 ===================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
   const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
   window.addEventListener('error', (ev) => { try{ setStatus('JS-Fehler: ' + (ev && ev.message ? ev.message : ev)); }catch(e){} });
   window.addEventListener('unhandledrejection', (ev) => { try{ setStatus('Promise-Fehler: ' + (ev && ev.reason ? (ev.reason.message || ev.reason) : ev)); }catch(e){} });
-  setStatus('initialisiert');
+  setStatus('bereit');
 })();
 
 
@@ -805,19 +797,10 @@ function renderOrtskenntnisList() {
   renderOrtskenntnisList();
 }
 
-  $('svgFile').addEventListener('change', async (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    const txt = await readFileAsText(f);
-    embedSvg(txt);
+  embedSvg(txt);
   });
 
-  $('indexFile').addEventListener('change', async (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    try {
-      const txt = await readFileAsText(f);
-      const obj = JSON.parse(txt);
+  const obj = JSON.parse(txt);
       if (obj.colors) indexData.colors = obj.colors;
       if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
       if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
@@ -1146,25 +1129,12 @@ window.addEventListener('load', function(){
     openMail(payload);
   });
 
-  var sf = $('stateFile');
-  if (sf) sf.addEventListener('change', function(ev){
-    var f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
-    if (!f) return;
-    loadStateFromFile(f)
-      .then(function(payload){
-        if (applyLoadedPayload(payload)) { toast('Streckenkundekarte geladen.'); }
-        else { toast('Datei ist keine gültige Streckenkundekarte.'); }
-      })
-      .catch(function(err){ console.error(err); toast('JSON konnte nicht gelesen werden.'); });
-    try { sf.value = ''; } catch(e) {}
   });
-});
 
 rebuildRouteList();
 
 
-// === AUTOLOAD_APP_V6 ====================================================
-// Lädt SVG via <object data="assets/map.svg"> (robust auf iOS) und Index via fetch.
+// === AUTOLOAD_APP_V7 ====================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
   const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
@@ -1194,8 +1164,6 @@ rebuildRouteList();
     return new Promise((resolve, reject) => {
       const host = document.getElementById('mapHost');
       if(!host) return reject(new Error('mapHost fehlt'));
-
-      // Objekt einhängen
       host.innerHTML = '<object id="svgObj" type="image/svg+xml"></object>';
       const obj = document.getElementById('svgObj');
       if(!obj) return reject(new Error('svgObj fehlt'));
@@ -1206,15 +1174,12 @@ rebuildRouteList();
           if(!doc) throw new Error('contentDocument leer');
           const svg = doc.querySelector('svg');
           if(!svg) throw new Error('keine <svg>-Wurzel');
-
-          // svgRoot global setzen wie im Viewer
           svgRoot = svg;
           svgRoot.style.width = '100%';
           svgRoot.style.height = '100%';
           svgRoot.style.display = 'block';
           svgRoot.style.maxWidth = '100%';
 
-          // Viewer initialisieren
           view.base = getInitialViewBox(svgRoot);
           setViewBox({ ...view.base });
           rebuildRouteList();
@@ -1225,13 +1190,9 @@ rebuildRouteList();
           renderActiveLines();
 
           resolve();
-        }catch(e){
-          reject(e);
-        }
+        }catch(e){ reject(e); }
       });
       obj.addEventListener('error', () => reject(new Error('object load error')));
-
-      // Quelle setzen (nach Listenern)
       obj.data = abs('assets/map.svg');
     });
   }
@@ -1241,13 +1202,11 @@ rebuildRouteList();
     if(running) return;
     running = true;
     try{
-      // Index optional
       try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen'); }
-
       setStatus('lade SVG …');
       await loadSvgViaObject();
       setStatus('fertig');
-    }catch(e){
+    } catch(e){
       setStatus('Fehler: ' + (e && e.message ? e.message : e));
       const host = document.getElementById('mapHost');
       if(host){
@@ -1256,15 +1215,15 @@ rebuildRouteList();
           + 'Teste direkt: <a href="' + abs('assets/map.svg') + '" target="_blank" rel="noopener">assets/map.svg</a>'
           + '</div>';
       }
-    }finally{
+    } finally {
       running = false;
     }
   }
 
   function schedule(){
     setTimeout(autoload, 0);
-    setTimeout(autoload, 150);
-    setTimeout(autoload, 800);
+    setTimeout(autoload, 200);
+    setTimeout(autoload, 900);
   }
 
   schedule();
