@@ -103,11 +103,12 @@
 
 
 
-/* --- App-Modus: Upload-UI ausblenden (Elemente bleiben im DOM) --- */
-.headerBar{ display:none !important; }
-#stateFile{ display:none !important; }
+/* --- App-Modus --- */
 header p{ display:none !important; }
 .zoomHint{ display:none !important; }
+
+/* Upload-Elemente komplett ausblenden (bleiben für JS als hidden Inputs vorhanden) */
+#stateFile{ display:none !important; }
 
 /* --- Layout: Vollhöhe --- */
 *,*::before,*::after{box-sizing:border-box;}
@@ -117,8 +118,10 @@ header { flex: 0 0 auto; }
 .wrap { flex: 1 1 auto; min-height: 0; }
 .mapWrap { min-height: 0; height: 100%; }
 #mapHost { min-height: 0; height: 100%; }
-
 #svgObj{ width:100%; height:100%; display:block; border:0; }
+
+/* Unsichtbarer Fallback-Container */
+#hiddenFileInputs{ position:fixed; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden; }
 
 </style>
 
@@ -129,16 +132,17 @@ header { flex: 0 0 auto; }
 
 </head>
 <body>
+
+<div id="hiddenFileInputs" aria-hidden="true">
+  <input id="svgFile" type="file" />
+  <input id="indexFile" type="file" accept="application/json,.json" />
+  <input id="stateFile" type="file" accept="application/json,.json" />
+</div>
+
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 14:20 UTC</div>
+  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 14:28 UTC</div>
   <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert</div>
-  <div class="headerBar">
-    <div class="hbItem">
-      <label for="svgFile">1) SVG-Datei</label>
-      <input id="svgFile" type="file" />
-    </div>
-    
 </header>
 
 <div class="wrap">
@@ -225,7 +229,7 @@ header { flex: 0 0 auto; }
 
 <script>
 
-// === BOOTSTRAP_APP_V8 ===================================================
+// === BOOTSTRAP_APP_V9 ===================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
   const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
@@ -804,14 +808,14 @@ function renderOrtskenntnisList() {
   renderOrtskenntnisList();
 }
 
-  (function(){ const el = $('svgFile'); if(!el) return; el.addEventListener('change', async (e) => {
+  $('svgFile').addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     const txt = await readFileAsText(f);
     embedSvg(txt);
   });
 
-  (function(){ const el = $('indexFile'); if(!el) return; el.addEventListener('change', async (e) => {
+  $('indexFile').addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     try {
@@ -1162,7 +1166,7 @@ window.addEventListener('load', function(){
 rebuildRouteList();
 
 
-// === AUTOLOAD_APP_V8 ====================================================
+// === AUTOLOAD_APP_V9 ====================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
   const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
@@ -1220,7 +1224,7 @@ rebuildRouteList();
           renderActiveLines();
 
           resolve();
-        }catch(e){ reject(e); }
+        } catch(e){ reject(e); }
       });
       obj.addEventListener('error', () => reject(new Error('object load error')));
 
@@ -1233,9 +1237,7 @@ rebuildRouteList();
     if(running) return;
     running = true;
     try{
-      // Index optional
       try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen'); }
-
       setStatus('lade SVG …');
       await loadSvgViaObject();
       setStatus('fertig');
@@ -1259,8 +1261,11 @@ rebuildRouteList();
     setTimeout(autoload, 1200);
   }
 
-  // sofort starten
   schedule();
+  document.addEventListener('DOMContentLoaded', schedule);
+  window.addEventListener('load', schedule);
+  window.addEventListener('pageshow', schedule);
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') schedule(); });
 })();
 
 </script>
