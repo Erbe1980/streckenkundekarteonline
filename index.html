@@ -2,7 +2,7 @@
 <html lang="de-CH">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>MEV Streckenkundekarten App</title>
   <style>
     :root {
@@ -125,11 +125,17 @@ header { flex: 0 0 auto; }
 
 
 
-/* Touch: Karte statt Seite zoomen (iOS/Safari) */
-.mapWrap, #mapHost {
+/* Touch: Overlay fängt Gesten ab, damit nur die Karte zoomt */
+#mapHost { position: relative; }
+#touchLayer {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  z-index: 50;
   touch-action: none;
-  overscroll-behavior: none;
 }
+/* iOS: Seite nicht scrollen (Best effort) */
+html, body { overscroll-behavior: none; }
 
 </style>
 
@@ -149,7 +155,7 @@ header { flex: 0 0 auto; }
 
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" P26-03-10 17:09 UTC</div>
+  <div class="hint" P26-03-10 17:22 UTC</div>
   <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert</div>
 </header>
 
@@ -247,7 +253,15 @@ header { flex: 0 0 auto; }
 })();
 
 
-  let svgRoot = null;
+  
+// === IOS_GESTURE_BLOCK_OVERLAY =========================================
+(function(){
+  const opts = { passive: false, capture: true };
+  document.addEventListener('gesturestart', function(e){ e.preventDefault(); }, opts);
+  document.addEventListener('gesturechange', function(e){ e.preventDefault(); }, opts);
+  document.addEventListener('gestureend', function(e){ e.preventDefault(); }, opts);
+})();
+let svgRoot = null;
 
   let indexData = {
     colors: {
@@ -691,21 +705,26 @@ function renderOrtskenntnisList() {
   }
 
 
-  // Touch (iPad/iPhone): 1 Finger = Pan, 2 Finger = Pinch-Zoom (ViewBox).
-  // Wichtig: nutzt Touch-Events auf #mapHost, damit es auch in <object> zuverlässig funktioniert.
-  function enableTouchPanZoomTouch(objEl) {
-    if (!svgRoot || !view.base) return;
-
+  // Touch Overlay: verhindert Seitenzoom und steuert ViewBox (funktioniert auch mit <object>)
+  function enableOverlayTouchZoom(objEl) {
     const host = document.getElementById('mapHost');
-    if (!host) return;
-    if (host.dataset.touchBound === '1') return;
-    host.dataset.touchBound = '1';
+    if (!host || !svgRoot || !view.base) return;
+
+    // Overlay anlegen
+    let layer = document.getElementById('touchLayer');
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.id = 'touchLayer';
+      host.appendChild(layer);
+    }
+    if (layer.dataset.bound === '1') return;
+    layer.dataset.bound = '1';
 
     const TAP_MOVE_PX = 10;
-    const TAP_MAX_MS = 280;
+    const TAP_MAX_MS  = 280;
     const TAP_RADIUS_PX = 18;
 
-    let mode = ''; // '', 'pan', 'pinch'
+    let mode = '';
     let panStart = null;
     let panViewStart = null;
     let pinchStart = null;
@@ -789,17 +808,12 @@ function renderOrtskenntnisList() {
         panStart = { x: t.clientX, y: t.clientY };
         panViewStart = { ...view.cur };
       } else if (e.touches.length >= 2) {
-        // Pinch: Seitenzoom verhindern
         e.preventDefault();
         mode = 'pinch';
         tapInfo = null;
         const t1 = e.touches[0], t2 = e.touches[1];
         const m = mid(t1, t2);
-        pinchStart = {
-          d0: dist(t1, t2),
-          vb: { ...view.cur },
-          midSvg: clientToSvg(m.x, m.y)
-        };
+        pinchStart = { d0: dist(t1, t2), vb: { ...view.cur }, midSvg: clientToSvg(m.x, m.y) };
       }
     }
 
@@ -807,16 +821,12 @@ function renderOrtskenntnisList() {
       if (!e.touches) return;
       if (mode === 'pan' && e.touches.length === 1) {
         const t = e.touches[0];
-        // Drag erst nach Schwelle
         if (tapInfo) {
-          const dx = t.clientX - tapInfo.x0;
-          const dy = t.clientY - tapInfo.y0;
-          if (Math.hypot(dx, dy) > TAP_MOVE_PX) {
-            // jetzt echtes Pan
-            tapInfo.moved = true;
-          }
+          const dx0 = t.clientX - tapInfo.x0;
+          const dy0 = t.clientY - tapInfo.y0;
+          if (Math.hypot(dx0, dy0) > TAP_MOVE_PX) tapInfo.moved = true;
         }
-        if (tapInfo && !tapInfo.moved) return; // noch Tap
+        if (tapInfo && !tapInfo.moved) return;
 
         e.preventDefault();
         const dx = t.clientX - panStart.x;
@@ -840,22 +850,17 @@ function renderOrtskenntnisList() {
         const ny = p.y - (p.y - vb.y) * z;
         const nw = vb.w * z;
         const nh = vb.h * z;
-
         const minW = view.base.w * 0.02;
         const maxW = view.base.w * 20;
         if (nw < minW || nw > maxW) return;
-
         setViewBox(clamp({ x: nx, y: ny, w: nw, h: nh }));
       }
     }
 
     function onEnd(e) {
-      // Tap auslösen
       if (mode === 'pan' && tapInfo && !tapInfo.moved) {
         const dt = Date.now() - tapInfo.t0;
-        if (dt <= TAP_MAX_MS) {
-          synthClick(tapInfo.x0, tapInfo.y0);
-        }
+        if (dt <= TAP_MAX_MS) synthClick(tapInfo.x0, tapInfo.y0);
       }
       if (!e.touches || e.touches.length === 0) {
         mode = '';
@@ -866,10 +871,10 @@ function renderOrtskenntnisList() {
       }
     }
 
-    host.addEventListener('touchstart', onStart, { passive: false });
-    host.addEventListener('touchmove', onMove, { passive: false });
-    host.addEventListener('touchend', onEnd, { passive: false });
-    host.addEventListener('touchcancel', onEnd, { passive: false });
+    layer.addEventListener('touchstart', onStart, { passive: false });
+    layer.addEventListener('touchmove', onMove, { passive: false });
+    layer.addEventListener('touchend', onEnd, { passive: false });
+    layer.addEventListener('touchcancel', onEnd, { passive: false });
   }
 
 
@@ -948,7 +953,7 @@ function renderOrtskenntnisList() {
     enablePointClickCycle();
     enablePanHandlers();
     enableWheelZoom();
-          enableTouchPanZoomTouch(obj);
+          enableOverlayTouchZoom(obj);
 
     applySelection();
     renderActiveLines();
