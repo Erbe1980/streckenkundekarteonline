@@ -129,8 +129,8 @@ header { flex: 0 0 auto; }
 <body>
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 12:47 UTC</div>
-  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> wartet …</div>
+  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 12:52 UTC</div>
+  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert …</div>
   <div class="headerBar">
     <div class="hbItem">
       <label for="svgFile">1) SVG-Datei</label>
@@ -1137,7 +1137,7 @@ window.addEventListener('load', function(){
 rebuildRouteList();
 
 
-// === AUTOLOAD_APP_V3 ====================================================
+// === AUTOLOAD_APP_V4 ====================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
   function setStatus(msg){ if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; }
@@ -1168,8 +1168,6 @@ rebuildRouteList();
       if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
       if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
       rebuildRouteList();
-      applySelection();
-      renderActiveLines();
     }
   }
 
@@ -1191,6 +1189,7 @@ rebuildRouteList();
     if(running) return;
     running = true;
     try{
+      // Index optional
       try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen'); }
       await loadSvg();
       setStatus('fertig');
@@ -1200,7 +1199,7 @@ rebuildRouteList();
       if(host){
         host.innerHTML = '<div style="color:#111;font-family:system-ui;padding:12px;">'
           + '<b>Automatisches Laden fehlgeschlagen.</b><br>'
-          + 'Teste direkt: <a href="' + abs('assets/map.svg') + '" target="_blank" rel="noopener">assets/map.svg</a>'
+          + 'Link-Test: <a href="' + abs('assets/map.svg') + '" target="_blank" rel="noopener">assets/map.svg</a>'
           + '</div>';
       }
     }finally{
@@ -1209,14 +1208,20 @@ rebuildRouteList();
   }
 
   function schedule(){
-    setTimeout(autoload, 80);
-    setTimeout(autoload, 400);
-    setTimeout(autoload, 1400);
+    // sofort und mehrfach
+    setTimeout(autoload, 0);
+    setTimeout(autoload, 120);
+    setTimeout(autoload, 600);
+    setTimeout(autoload, 1600);
   }
 
+  // Event-Hooks
   document.addEventListener('DOMContentLoaded', schedule);
+  window.addEventListener('load', schedule);
   document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') schedule(); });
   window.addEventListener('pageshow', schedule);
+
+  // sofort starten (auch wenn DOMContentLoaded schon vorbei ist)
   schedule();
 })();
 
