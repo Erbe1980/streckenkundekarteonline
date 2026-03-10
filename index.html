@@ -103,9 +103,9 @@
 
 
 
-/* --- App-Modus: Upload-UI ausblenden --- */
+/* --- App-Modus: Upload-UI ausblenden (Elemente bleiben im DOM) --- */
 .headerBar{ display:none !important; }
-#svgFile,#indexFile,#stateFile{ display:none !important; }
+#stateFile{ display:none !important; }
 header p{ display:none !important; }
 .zoomHint{ display:none !important; }
 
@@ -117,6 +117,7 @@ header { flex: 0 0 auto; }
 .wrap { flex: 1 1 auto; min-height: 0; }
 .mapWrap { min-height: 0; height: 100%; }
 #mapHost { min-height: 0; height: 100%; }
+
 #svgObj{ width:100%; height:100%; display:block; border:0; }
 
 </style>
@@ -130,8 +131,14 @@ header { flex: 0 0 auto; }
 <body>
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 14:08 UTC</div>
-  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert …</div>
+  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 14:20 UTC</div>
+  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Autoload:</b> initialisiert</div>
+  <div class="headerBar">
+    <div class="hbItem">
+      <label for="svgFile">1) SVG-Datei</label>
+      <input id="svgFile" type="file" />
+    </div>
+    
 </header>
 
 <div class="wrap">
@@ -218,13 +225,13 @@ header { flex: 0 0 auto; }
 
 <script>
 
-// === BOOTSTRAP_APP_V7 ===================================================
+// === BOOTSTRAP_APP_V8 ===================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
   const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
   window.addEventListener('error', (ev) => { try{ setStatus('JS-Fehler: ' + (ev && ev.message ? ev.message : ev)); }catch(e){} });
   window.addEventListener('unhandledrejection', (ev) => { try{ setStatus('Promise-Fehler: ' + (ev && ev.reason ? (ev.reason.message || ev.reason) : ev)); }catch(e){} });
-  setStatus('bereit');
+  setStatus('JS läuft');
 })();
 
 
@@ -797,10 +804,19 @@ function renderOrtskenntnisList() {
   renderOrtskenntnisList();
 }
 
-  embedSvg(txt);
+  (function(){ const el = $('svgFile'); if(!el) return; el.addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const txt = await readFileAsText(f);
+    embedSvg(txt);
   });
 
-  const obj = JSON.parse(txt);
+  (function(){ const el = $('indexFile'); if(!el) return; el.addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    try {
+      const txt = await readFileAsText(f);
+      const obj = JSON.parse(txt);
       if (obj.colors) indexData.colors = obj.colors;
       if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
       if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
@@ -1129,12 +1145,24 @@ window.addEventListener('load', function(){
     openMail(payload);
   });
 
+  var sf = $('stateFile');
+  if (sf) sf.addEventListener('change', function(ev){
+    var f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
+    if (!f) return;
+    loadStateFromFile(f)
+      .then(function(payload){
+        if (applyLoadedPayload(payload)) { toast('Streckenkundekarte geladen.'); }
+        else { toast('Datei ist keine gültige Streckenkundekarte.'); }
+      })
+      .catch(function(err){ console.error(err); toast('JSON konnte nicht gelesen werden.'); });
+    try { sf.value = ''; } catch(e) {}
   });
+});
 
 rebuildRouteList();
 
 
-// === AUTOLOAD_APP_V7 ====================================================
+// === AUTOLOAD_APP_V8 ====================================================
 (function(){
   const st = document.getElementById('autoloadStatus');
   const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
@@ -1164,6 +1192,7 @@ rebuildRouteList();
     return new Promise((resolve, reject) => {
       const host = document.getElementById('mapHost');
       if(!host) return reject(new Error('mapHost fehlt'));
+
       host.innerHTML = '<object id="svgObj" type="image/svg+xml"></object>';
       const obj = document.getElementById('svgObj');
       if(!obj) return reject(new Error('svgObj fehlt'));
@@ -1174,6 +1203,7 @@ rebuildRouteList();
           if(!doc) throw new Error('contentDocument leer');
           const svg = doc.querySelector('svg');
           if(!svg) throw new Error('keine <svg>-Wurzel');
+
           svgRoot = svg;
           svgRoot.style.width = '100%';
           svgRoot.style.height = '100%';
@@ -1193,6 +1223,7 @@ rebuildRouteList();
         }catch(e){ reject(e); }
       });
       obj.addEventListener('error', () => reject(new Error('object load error')));
+
       obj.data = abs('assets/map.svg');
     });
   }
@@ -1202,7 +1233,9 @@ rebuildRouteList();
     if(running) return;
     running = true;
     try{
+      // Index optional
       try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen'); }
+
       setStatus('lade SVG …');
       await loadSvgViaObject();
       setStatus('fertig');
@@ -1222,15 +1255,12 @@ rebuildRouteList();
 
   function schedule(){
     setTimeout(autoload, 0);
-    setTimeout(autoload, 200);
-    setTimeout(autoload, 900);
+    setTimeout(autoload, 250);
+    setTimeout(autoload, 1200);
   }
 
+  // sofort starten
   schedule();
-  document.addEventListener('DOMContentLoaded', schedule);
-  window.addEventListener('load', schedule);
-  window.addEventListener('pageshow', schedule);
-  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') schedule(); });
 })();
 
 </script>
