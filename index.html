@@ -103,15 +103,17 @@
 
 
 
-/* --- App-Modus: Upload-UI ausblenden --- */
+/* --- App-Modus --- */
 .headerBar{ display:none !important; }
 #hiddenFileInputs{ position:fixed; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden; }
 #stateFile{ display:none !important; }
 header p{ display:none !important; }
 
+/* Debug nur bei ?debug=1 */
+body[data-debug="1"] #statusLine{ display:block !important; }
+
 .zoomHint{ position:absolute; left:10px; top:10px; background:rgba(255,255,255,0.92); color:#111; border:1px solid rgba(0,0,0,0.15); padding:6px 8px; border-radius:10px; font-size:12px; z-index:30; }
 
-/* --- Layout: Vollhöhe --- */
 *,*::before,*::after{box-sizing:border-box;}
 html, body { height: 100%; }
 body { min-height: 100vh; display: flex; flex-direction: column; }
@@ -139,8 +141,7 @@ header { flex: 0 0 auto; }
 
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px;">Build: 2026-03-10 15:05 UTC</div>
-  <div class="hint" id="autoloadStatus" style="margin-top:6px;"><b>Status:</b> initialisiert</div>
+  <div class="hint" id="statusLine" style="display:none; margin-top:6px;"></div>
 </header>
 
 <div class="wrap">
@@ -595,7 +596,7 @@ function renderOrtskenntnisList() {
         if (cur === '') next = 'kundig';
         else if (cur === 'kundig') next = 'unkundig';
         else if (cur === 'unkundig') next = '';
-        else if (cur === 'neutral') next = '';
+        else next = '';
 
         if (next === '') delete selection.overrides[id];
         else selection.overrides[id] = next;
@@ -1155,28 +1156,18 @@ var b3 = $('loadLocal');
 rebuildRouteList();
 
 
-// === APP_AUTOLOAD_V10E ==================================================
+// === APP_PATCH_V11 (build 2026-03-10 15:09 UTC) ==================================
 (function(){
-  const st = document.getElementById('autoloadStatus');
-  const setStatus = (msg) => { if(st) st.innerHTML = '<b>Status:</b> ' + msg; };
+  const params = new URLSearchParams(window.location.search || '');
+  const debug = params.get('debug') === '1';
+  if(debug) document.body.setAttribute('data-debug','1');
+
+  const st = document.getElementById('statusLine');
+  const setStatus = (msg) => { if(st) st.textContent = msg; };
 
   function abs(rel){
     const base = window.location.href.split('#')[0];
     return new URL(rel, base).toString();
-  }
-
-  async function loadIndex(){
-    const url = abs('assets/index.json');
-    setStatus('lade Index …');
-    const r = await fetch(url, { cache:'no-store' });
-    if(!r.ok) throw new Error('Index HTTP ' + r.status);
-    const obj = await r.json();
-    if(obj && typeof obj === 'object'){
-      if (obj.colors) indexData.colors = obj.colors;
-      if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
-      if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
-      rebuildRouteList();
-    }
   }
 
   function clampToBase(nx, ny, nw, nh){
@@ -1213,119 +1204,98 @@ rebuildRouteList();
       .filter(el => (typeof matchesAnyLine === 'function' ? matchesAnyLine(el, line) : (el.getAttribute('data-line') === line)));
     if(!nodes.length) return false;
 
-    // Schwerpunkt (Mittelpunkt) bestimmen
     let sx=0, sy=0, n=0;
-    const centers = [];
+    const centers=[];
     for(const el of nodes){
       if(!el.getBBox) continue;
       const bb = el.getBBox();
       const cx = bb.x + bb.width/2;
       const cy = bb.y + bb.height/2;
-      centers.push({el, bb, cx, cy});
-      sx += cx; sy += cy; n++;
+      centers.push({bb,cx,cy});
+      sx+=cx; sy+=cy; n++;
     }
     if(!n) return false;
-    const ax = sx/n, ay = sy/n;
-
-    // Nächstes Element zum Schwerpunkt
-    let best = centers[0];
-    let bestD = Infinity;
+    const ax=sx/n, ay=sy/n;
+    let best=centers[0];
+    let bestD=Infinity;
     for(const c of centers){
-      const dx = c.cx-ax, dy=c.cy-ay;
-      const d = dx*dx + dy*dy;
-      if(d < bestD){ bestD = d; best = c; }
+      const dx=c.cx-ax, dy=c.cy-ay;
+      const d=dx*dx+dy*dy;
+      if(d<bestD){ bestD=d; best=c; }
     }
     focusOnBbox(best.bb, zoomFactor);
     return true;
   }
 
-  function enableTouchPanZoomV3(obj){
+  function enableTouchPanZoom(obj){
     if(!svgRoot) return;
-
     const pointers = new Map();
-    let panStart = null;
-    let panViewStart = null;
-    let pinchStart = null;
-    let dragging = false;
-    let tapInfo = null;
-
-    const TAP_MOVE_PX = 10;   // etwas grosszügiger
+    let panStart=null, panViewStart=null, pinchStart=null;
+    let dragging=false, tapInfo=null;
+    const TAP_MOVE_PX = 10;
     const TAP_MAX_MS  = 280;
+    let rafPending=false, rafPanPoint=null, rafPinchPair=null;
 
-    let rafPending = false;
-    let rafPanPoint = null;
-    let rafPinchPair = null;
-
-    function dist(a,b){
-      const dx=a.x-b.x, dy=a.y-b.y;
-      return Math.hypot(dx,dy);
-    }
-    function midpoint(a,b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
+    function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
+    function midpoint(a,b){ return {x:(a.x+b.x)/2, y:(a.y+b.y)/2}; }
 
     function clientToSvg(x,y){
       const pt = svgRoot.createSVGPoint();
-      pt.x = x; pt.y = y;
+      pt.x=x; pt.y=y;
       const ctm = svgRoot.getScreenCTM();
       if(!ctm) return {x:0,y:0};
       const sp = pt.matrixTransform(ctm.inverse());
       return {x:sp.x,y:sp.y};
     }
 
-    function startPan(p){
-      panStart = {x:p.x, y:p.y};
-      panViewStart = { ...view.cur };
-    }
-
+    function startPan(p){ panStart={x:p.x,y:p.y}; panViewStart={...view.cur}; }
     function panApply(p){
-      if(!panStart || !panViewStart) return;
-      const dx = p.x - panStart.x;
-      const dy = p.y - panStart.y;
-      const rect = svgRoot.getBoundingClientRect();
-      const sx = panViewStart.w / rect.width;
-      const sy = panViewStart.h / rect.height;
-      setViewBox({ x: panViewStart.x - dx*sx, y: panViewStart.y - dy*sy, w: panViewStart.w, h: panViewStart.h });
+      if(!panStart||!panViewStart) return;
+      const dx=p.x-panStart.x, dy=p.y-panStart.y;
+      const rect=svgRoot.getBoundingClientRect();
+      const sx=panViewStart.w/rect.width, sy=panViewStart.h/rect.height;
+      setViewBox({x:panViewStart.x-dx*sx, y:panViewStart.y-dy*sy, w:panViewStart.w, h:panViewStart.h});
     }
 
     function startPinch(p1,p2){
-      const d0 = dist(p1,p2);
-      const mid = midpoint(p1,p2);
-      const sp = clientToSvg(mid.x, mid.y);
-      pinchStart = { d0, midSvg: sp, vb: { ...view.cur } };
+      const d0=dist(p1,p2);
+      const mid=midpoint(p1,p2);
+      const sp=clientToSvg(mid.x, mid.y);
+      pinchStart={d0, midSvg:sp, vb:{...view.cur}};
     }
-
     function pinchApply(p1,p2){
       if(!pinchStart) return;
-      const d1 = dist(p1,p2);
-      if(d1 < 10) return;
-      const z = pinchStart.d0 / d1;
-      const vb = pinchStart.vb;
-      const p = pinchStart.midSvg;
-      const nx = p.x - (p.x - vb.x) * z;
-      const ny = p.y - (p.y - vb.y) * z;
-      const nw = vb.w * z;
-      const nh = vb.h * z;
-      const minW = view.base.w * 0.02;
-      const maxW = view.base.w * 20;
-      if(nw < minW || nw > maxW) return;
-      setViewBox(clampToBase(nx, ny, nw, nh));
+      const d1=dist(p1,p2);
+      if(d1<10) return;
+      const z=pinchStart.d0/d1;
+      const vb=pinchStart.vb;
+      const p=pinchStart.midSvg;
+      const nx=p.x-(p.x-vb.x)*z;
+      const ny=p.y-(p.y-vb.y)*z;
+      const nw=vb.w*z;
+      const nh=vb.h*z;
+      const minW=view.base.w*0.02;
+      const maxW=view.base.w*20;
+      if(nw<minW||nw>maxW) return;
+      setViewBox(clampToBase(nx,ny,nw,nh));
     }
 
     function requestFrame(){
       if(rafPending) return;
-      rafPending = true;
+      rafPending=true;
       requestAnimationFrame(()=>{
-        rafPending = false;
-        if(rafPinchPair){ pinchApply(rafPinchPair[0], rafPinchPair[1]); rafPinchPair = null; }
-        else if(rafPanPoint){ panApply(rafPanPoint); rafPanPoint = null; }
+        rafPending=false;
+        if(rafPinchPair){ pinchApply(rafPinchPair[0], rafPinchPair[1]); rafPinchPair=null; }
+        else if(rafPanPoint){ panApply(rafPanPoint); rafPanPoint=null; }
       });
     }
 
     function reset(){ panStart=null; panViewStart=null; pinchStart=null; dragging=false; tapInfo=null; rafPanPoint=null; rafPinchPair=null; rafPending=false; }
 
-    function synthClick(clientX, clientY){
+    function synthClick(cx,cy){
       const doc = obj && obj.contentDocument;
       if(!doc) return;
-      const target = doc.elementFromPoint(clientX, clientY);
+      const target = doc.elementFromPoint(cx,cy);
       if(!target) return;
       let el = target;
       for(let i=0;i<8;i++){
@@ -1333,98 +1303,87 @@ rebuildRouteList();
         el = el && el.parentElement;
       }
       if(!el) return;
-      try{ el.dispatchEvent(new MouseEvent('click', { bubbles:true, cancelable:true, view: window })); } catch(e) {}
+      try{ el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,view:window})); }catch(e){}
     }
 
     svgRoot.addEventListener('pointerdown', (ev)=>{
-      if(ev.pointerType !== 'touch') return;
+      if(ev.pointerType!=='touch') return;
       pointers.set(ev.pointerId, {x:ev.clientX, y:ev.clientY});
       try{ svgRoot.setPointerCapture(ev.pointerId); }catch(e){}
-
-      if(pointers.size === 1){
-        const p = Array.from(pointers.values())[0];
+      if(pointers.size===1){
+        const p=Array.from(pointers.values())[0];
         startPan(p);
-        dragging = false;
-        tapInfo = { t: Date.now(), x0: p.x, y0: p.y };
-      } else if(pointers.size === 2){
+        dragging=false;
+        tapInfo={t:Date.now(), x0:p.x, y0:p.y};
+      } else if(pointers.size===2){
         ev.preventDefault();
-        const [a,b] = Array.from(pointers.values());
+        const [a,b]=Array.from(pointers.values());
         startPinch(a,b);
-        dragging = true;
-        tapInfo = null;
+        dragging=true;
+        tapInfo=null;
       }
-    }, {passive:false});
+    }, {passive:false}));
 
     svgRoot.addEventListener('pointermove', (ev)=>{
-      if(ev.pointerType !== 'touch') return;
+      if(ev.pointerType!=='touch') return;
       if(!pointers.has(ev.pointerId)) return;
-      const pNew = {x:ev.clientX, y:ev.clientY};
+      const pNew={x:ev.clientX, y:ev.clientY};
       pointers.set(ev.pointerId, pNew);
 
-      if(pointers.size === 1){
-        const p = Array.from(pointers.values())[0];
+      if(pointers.size===1){
+        const p=Array.from(pointers.values())[0];
         if(tapInfo){
-          const dx = p.x - tapInfo.x0;
-          const dy = p.y - tapInfo.y0;
-          if(Math.hypot(dx,dy) > TAP_MOVE_PX) dragging = true;
+          const dx=p.x-tapInfo.x0, dy=p.y-tapInfo.y0;
+          if(Math.hypot(dx,dy)>TAP_MOVE_PX) dragging=true;
         }
         if(dragging){
           ev.preventDefault();
-          rafPanPoint = p;
+          rafPanPoint=p;
           requestFrame();
         }
-      } else if(pointers.size === 2){
+      } else if(pointers.size===2){
         ev.preventDefault();
-        const [a,b] = Array.from(pointers.values());
-        rafPinchPair = [a,b];
+        const [a,b]=Array.from(pointers.values());
+        rafPinchPair=[a,b];
         requestFrame();
       }
-    }, {passive:false});
+    }, {passive:false}));
 
     function end(ev){
-      if(ev.pointerType !== 'touch') return;
-      const last = pointers.get(ev.pointerId);
+      if(ev.pointerType!=='touch') return;
+      const last=pointers.get(ev.pointerId);
       pointers.delete(ev.pointerId);
-
       if(!dragging && tapInfo && last){
-        const dt = Date.now() - tapInfo.t;
-        const dx = last.x - tapInfo.x0;
-        const dy = last.y - tapInfo.y0;
-        if(dt <= TAP_MAX_MS && Math.hypot(dx,dy) <= TAP_MOVE_PX){
-          synthClick(last.x, last.y);
-        }
+        const dt=Date.now()-tapInfo.t;
+        const dx=last.x-tapInfo.x0, dy=last.y-tapInfo.y0;
+        if(dt<=TAP_MAX_MS && Math.hypot(dx,dy)<=TAP_MOVE_PX) synthClick(last.x,last.y);
       }
-
-      if(pointers.size < 2) pinchStart = null;
-      if(pointers.size === 0) reset();
+      if(pointers.size<2) pinchStart=null;
+      if(pointers.size===0) reset();
     }
-
     svgRoot.addEventListener('pointerup', end, {passive:true});
     svgRoot.addEventListener('pointercancel', end, {passive:true});
 
     // Buttons
-    const zin = document.getElementById('zoomIn');
-    const zout = document.getElementById('zoomOut');
-    const zreset = document.getElementById('zoomReset');
+    const zin=document.getElementById('zoomIn');
+    const zout=document.getElementById('zoomOut');
+    const zreset=document.getElementById('zoomReset');
 
     function zoom(f){
-      if(!view.cur || !view.base) return;
-      const vb = { ...view.cur };
-      const cx = vb.x + vb.w/2;
-      const cy = vb.y + vb.h/2;
-      const nw = vb.w * f;
-      const nh = vb.h * f;
-      const nx = cx - nw/2;
-      const ny = cy - nh/2;
-      const minW = view.base.w * 0.02;
-      const maxW = view.base.w * 20;
-      if(nw < minW || nw > maxW) return;
-      setViewBox(clampToBase(nx, ny, nw, nh));
+      if(!view.cur||!view.base) return;
+      const vb={...view.cur};
+      const cx=vb.x+vb.w/2, cy=vb.y+vb.h/2;
+      const nw=vb.w*f, nh=vb.h*f;
+      const nx=cx-nw/2, ny=cy-nh/2;
+      const minW=view.base.w*0.02;
+      const maxW=view.base.w*20;
+      if(nw<minW||nw>maxW) return;
+      setViewBox(clampToBase(nx,ny,nw,nh));
     }
 
     if(zin) zin.addEventListener('click', ()=>zoom(0.85));
     if(zout) zout.addEventListener('click', ()=>zoom(1.18));
-    if(zreset) zreset.addEventListener('click', ()=>{ if(view.base) { setViewBox({ ...view.base }); focusOnCode('MU', 2.0); } });
+    if(zreset) zreset.addEventListener('click', ()=>{ if(view.base){ setViewBox({...view.base}); focusOnCode('MU', 2.0); } });
 
     // Auto-Fokus bei Linienwahl
     if(typeof window.setSelectedLineUi === 'function' && !window.__mevLinePatch){
@@ -1433,77 +1392,79 @@ rebuildRouteList();
       window.setSelectedLineUi = function(line){
         orig(line);
         if(!line) return;
-        // leicht verzögert, damit UI fertig
         setTimeout(()=>{ try{ focusLineMid(line, 2.0); }catch(e){} }, 0);
       };
     }
   }
 
-  function initSvgFromObject(obj){
-    const doc = obj.contentDocument;
-    if(!doc) throw new Error('contentDocument leer');
-    const svg = doc.querySelector('svg');
-    if(!svg) throw new Error('keine <svg>-Wurzel');
-
-    svgRoot = svg;
-    svgRoot.style.width = '100%';
-    svgRoot.style.height = '100%';
-    svgRoot.style.display = 'block';
-    svgRoot.style.maxWidth = '100%';
-    try{ svgRoot.style.touchAction = 'none'; } catch(e){}
-
-    view.base = getInitialViewBox(svgRoot);
-    setViewBox({ ...view.base });
-
-    enablePointClickCycle();
-    enableWheelZoom();
-
-    enableTouchPanZoomV3(obj);
-
-    applySelection();
-    renderActiveLines();
-
-    // Startposition: MU auf 200%
-    setTimeout(()=>{ try{ focusOnCode('MU', 2.0); }catch(e){} }, 0);
-  }
-
   function loadSvgViaObject(){
-    return new Promise((resolve, reject) => {
-      const host = document.getElementById('mapHost');
+    return new Promise((resolve, reject)=>{
+      const host=document.getElementById('mapHost');
       if(!host) return reject(new Error('mapHost fehlt'));
       host.innerHTML = '<object id="svgObj" type="image/svg+xml"></object>';
-      const obj = document.getElementById('svgObj');
+      const obj=document.getElementById('svgObj');
       if(!obj) return reject(new Error('svgObj fehlt'));
-      obj.addEventListener('load', () => { try{ initSvgFromObject(obj); resolve(); } catch(e){ reject(e); } });
-      obj.addEventListener('error', () => reject(new Error('object load error')));
+      obj.addEventListener('load', ()=>{
+        try{
+          const doc=obj.contentDocument;
+          if(!doc) throw new Error('contentDocument leer');
+          const svg=doc.querySelector('svg');
+          if(!svg) throw new Error('keine <svg>-Wurzel');
+          svgRoot=svg;
+          svgRoot.style.width='100%';
+          svgRoot.style.height='100%';
+          svgRoot.style.display='block';
+          svgRoot.style.maxWidth='100%';
+          try{ svgRoot.style.touchAction='none'; }catch(e){}
+
+          view.base = getInitialViewBox(svgRoot);
+          setViewBox({...view.base});
+
+          enablePointClickCycle();
+          enableWheelZoom();
+
+          enableTouchPanZoom(obj);
+
+          applySelection();
+          renderActiveLines();
+
+          // Start MU 200%
+          setTimeout(()=>{ try{ focusOnCode('MU', 2.0); }catch(e){} }, 0);
+
+          resolve();
+        }catch(e){ reject(e); }
+      });
+      obj.addEventListener('error', ()=>reject(new Error('object load error')));
       obj.data = abs('assets/map.svg');
     });
   }
 
-  let running = false;
-  async function autoload(){
-    if(running) return;
-    running = true;
+  // Autoload sofort
+  (async ()=>{
     try{
-      try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen'); }
-      setStatus('lade Karte …');
+      // Debug: Status
+      setStatus('Autoload startet');
+      // Index optional
+      try{
+        const r = await fetch(abs('assets/index.json'), {cache:'no-store'});
+        if(r.ok){
+          const obj = await r.json();
+          if(obj && typeof obj === 'object'){
+            if (obj.colors) indexData.colors = obj.colors;
+            if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
+            if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
+            rebuildRouteList();
+          }
+        }
+      }catch(e){}
+
       await loadSvgViaObject();
       setStatus('bereit');
-    } catch(e){
+    }catch(e){
       setStatus('Fehler: ' + (e && e.message ? e.message : e));
-    } finally {
-      running = false;
     }
-  }
+  })();
 
-  function schedule(){
-    setTimeout(autoload, 0);
-    setTimeout(autoload, 250);
-    setTimeout(autoload, 1200);
-  }
-
-  schedule();
-  window.addEventListener('pageshow', schedule);
 })();
 
 </script>
