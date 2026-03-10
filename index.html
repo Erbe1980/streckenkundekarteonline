@@ -2,7 +2,7 @@
 <html lang="de-CH">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>MEV Streckenkundekarten App</title>
   <style>
     :root {
@@ -122,6 +122,14 @@ header { flex: 0 0 auto; }
 
 /* Unsichtbarer Fallback-Container */
 #hiddenFileInputs{ position:fixed; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden; }
+
+
+
+/* Touch: Browser-Zoom/Pull-to-refresh verhindern */
+.mapWrap, #mapHost {
+  touch-action: none;
+  overscroll-behavior: none;
+}
 
 </style>
 
@@ -683,9 +691,18 @@ function renderOrtskenntnisList() {
   }
 
 
-  // Touch: 1 Finger = Pan, 2 Finger = Zoom (Pinch). Tap = Punkt-Klick.
-  function enableTouchPanZoom(objEl) {
+  // Touch: 1 Finger = Pan, 2 Finger = Zoom (Pinch). Tap = nächster Punkt.
+  function enableTouchPanZoomV2(objEl) {
     if (!svgRoot || !view.base) return;
+
+    // iOS Safari ignoriert touch-action teils: zusätzlich preventDefault bei 2 Fingern
+    const host = document.getElementById('mapHost');
+    if (host && !host.dataset.boundTouchBlock) {
+      host.dataset.boundTouchBlock = '1';
+      host.addEventListener('touchstart', (e)=>{ if(e.touches && e.touches.length>1) e.preventDefault(); }, {passive:false});
+      host.addEventListener('touchmove',  (e)=>{ if(e.touches && e.touches.length>1) e.preventDefault(); }, {passive:false});
+    }
+
     try { svgRoot.style.touchAction = 'none'; } catch (e) {}
 
     const pointers = new Map();
@@ -697,6 +714,7 @@ function renderOrtskenntnisList() {
 
     const TAP_MOVE_PX = 10;
     const TAP_MAX_MS = 280;
+    const TAP_RADIUS_PX = 18; // Trefferfläche
 
     let rafPending = false;
     let rafPan = null;
@@ -777,16 +795,44 @@ function renderOrtskenntnisList() {
       });
     }
 
-    function synthClick(cx, cy) {
+    function findNearestPoint(clientX, clientY) {
       const doc = objEl && objEl.contentDocument;
-      if (!doc) return;
-      const target = doc.elementFromPoint(cx, cy);
-      if (!target) return;
-      let el = target;
-      for (let i = 0; i < 8; i++) {
-        if (el && el.getAttribute && (el.getAttribute('data-typ') || el.getAttribute('data-type'))) break;
-        el = el && el.parentElement;
+      if (!doc) return null;
+      // Erst versuchen: elementFromPoint
+      let target = doc.elementFromPoint(clientX, clientY);
+      if (target) {
+        let el = target;
+        for (let i = 0; i < 8; i++) {
+          if (el && el.getAttribute && (el.getAttribute('data-typ') || el.getAttribute('data-type'))) return el;
+          el = el && el.parentElement;
+        }
       }
+      // Fallback: nächster Punkt im Radius
+      const pts = Array.from(doc.querySelectorAll('[data-typ],[data-type]'));
+      let best = null;
+      let bestD = TAP_RADIUS_PX * TAP_RADIUS_PX;
+      for (const el of pts) {
+        try {
+          const bb = el.getBBox();
+          const cx = bb.x + bb.width/2;
+          const cy = bb.y + bb.height/2;
+          // SVG -> client
+          const pt = doc.documentElement.createSVGPoint();
+          pt.x = cx; pt.y = cy;
+          const ctm = el.getScreenCTM();
+          if (!ctm) continue;
+          const sp = pt.matrixTransform(ctm);
+          const dx = sp.x - clientX;
+          const dy = sp.y - clientY;
+          const d2 = dx*dx + dy*dy;
+          if (d2 < bestD) { bestD = d2; best = el; }
+        } catch (e) {}
+      }
+      return best;
+    }
+
+    function synthClick(clientX, clientY) {
+      const el = findNearestPoint(clientX, clientY);
       if (!el) return;
       try {
         el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
@@ -846,7 +892,9 @@ function renderOrtskenntnisList() {
       if (!dragging && tapInfo && last) {
         const dt = Date.now() - tapInfo.t;
         const dx = last.x - tapInfo.x0, dy = last.y - tapInfo.y0;
-        if (dt <= TAP_MAX_MS && Math.hypot(dx, dy) <= TAP_MOVE_PX) synthClick(last.x, last.y);
+        if (dt <= TAP_MAX_MS && Math.hypot(dx, dy) <= TAP_MOVE_PX) {
+          synthClick(last.x, last.y);
+        }
       }
 
       if (pointers.size < 2) pinchStart = null;
@@ -939,7 +987,7 @@ function renderOrtskenntnisList() {
     enablePointClickCycle();
     enablePanHandlers();
     enableWheelZoom();
-          enableTouchPanZoom(obj);
+          enableTouchPanZoomV2(obj);
 
     applySelection();
     renderActiveLines();
