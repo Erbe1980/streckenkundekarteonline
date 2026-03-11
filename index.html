@@ -108,8 +108,6 @@ header p{ display:none !important; }
 .zoomHint{ display:none !important; }
 
 /* Upload-Elemente komplett ausblenden (bleiben für JS als hidden Inputs vorhanden) */
-#stateFile{ display:none !important; }
-
 /* --- Layout: Vollhöhe --- */
 *,*::before,*::after{box-sizing:border-box;}
 html, body { height: 100%; }
@@ -157,7 +155,7 @@ header { flex: 0 0 auto; }
 
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-10 17:36 UTC</div>
+  <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 08:07 UTC</div>
   <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
 </header>
 
@@ -173,11 +171,12 @@ header { flex: 0 0 auto; }
    <input id="datum" type="date" />
  </div>
  <div class="btns" style="margin-top:8px;">
-   <button class="btn primary full" id="saveJson">Speichern (Datei)</button>
-   <button class="btn" id="saveLocal">Speichern (Browser)</button>
-   <button class="btn" id="loadLocal">Laden (Browser)</button>
-   <button class="btn full" id="sendMail">Per E-Mail senden</button>
- </div>
+  <button class="btn primary" id="saveJson">Speichern (Datei)</button>
+  <button class="btn" id="loadJson">Laden (Datei)</button>
+  <button class="btn full" id="shareJson">Teilen…</button>
+  <button class="btn" id="saveLocal">Speichern (Browser)</button>
+  <button class="btn" id="loadLocal">Laden (Browser)</button>
+</div>
 <div class="hr"></div>
 <h2>Strecke wählen & markieren</h2>
     <div class="row">
@@ -908,11 +907,7 @@ function renderOrtskenntnisList() {
   const line = $('lineSelect').value;
   if (!line) { toast('Bitte zuerst eine Strecke in der Liste wählen.'); return; }
   const prev = selection.activeLines[line];
-  if (status === 'unkundig' && prev === 'kundig') {
-    toast('Kundig hat Vorrang: Linie bleibt kundig.');
-    status = 'kundig';
-  }
-  selection.activeLines[line] = status;
+selection.activeLines[line] = status;
   touchLineOrder(line);
   applySelection();
   renderActiveLines();
@@ -1113,6 +1108,74 @@ function getExportPayload() {
     }
   };
 }
+
+
+// === Teilen (iOS Share Sheet) / Minimalformat =============================
+function getMinimalPayload(){
+  const n = document.getElementById('nachname') ? String(document.getElementById('nachname').value || '').trim() : '';
+  const v = document.getElementById('vorname') ? String(document.getElementById('vorname').value || '').trim() : '';
+  const d = document.getElementById('datum') ? String(document.getElementById('datum').value || '').trim() : '';
+
+  const active = {};
+  try {
+    (selection.lineOrder || []).forEach(line => {
+      if (selection.activeLines && selection.activeLines[line]) active[line] = selection.activeLines[line];
+    });
+  } catch(e) {}
+
+  return {
+    meta: { nachname: n, vorname: v, datum: d },
+    erzeugtAm: new Date().toISOString(),
+    selection: {
+      activeLines: active,
+      lineOrder: (selection.lineOrder || []).slice(),
+      overrides: selection.overrides || {}
+    }
+  };
+}
+
+function makeFileName(meta){
+  const safe = (s)=> String(s || '').replace(/[^a-zA-Z0-9\-_. ]/g,'').trim().replace(/\s+/g,'_');
+  return ('streckenkundekarte_' + safe(meta.nachname) + '_' + safe(meta.vorname) + '_' + safe(meta.datum) + '.json').replace(/__+/g,'_');
+}
+
+async function shareOrDownloadJson(){
+  const payload = getMinimalPayload();
+  const meta = payload.meta || {};
+  if (!meta.nachname || !meta.vorname || !meta.datum){
+    toast('Bitte Name, Vorname und Datum ausfüllen.');
+    return;
+  }
+
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const fileName = makeFileName(meta);
+  let file = null;
+  try { file = new File([blob], fileName, { type: 'application/json' }); } catch(e) { file = null; }
+
+  // Web Share API (nur wenn Datei-Sharing unterstützt wird)
+  try {
+    if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ title: 'Streckenkundekarte', files: [file] });
+      toast('Geteilt.');
+      return;
+    }
+  } catch(e) {
+    console.warn(e);
+  }
+
+  // Fallback: Download (danach in Dateien teilen)
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast('Datei heruntergeladen (danach in Dateien teilen).');
+}
+
 function downloadJson(payload) {
   var meta = payload.meta || {};
   var fn = 'streckenkundekarte_' + safeFilePart(meta.nachname) + '_' + safeFilePart(meta.vorname) + '_' + safeFilePart(meta.datum) + '.json';
@@ -1175,79 +1238,10 @@ function loadStateFromFile(file) {
     } catch (e) { reject(e); }
   });
 }
-function summarizeForMail(payload) {
-  var meta = payload.meta || {};
-  var act = (payload.selection && payload.selection.activeLines) ? payload.selection.activeLines : {};
-  var keys = Object.keys(act);
-  keys.sort(function(a,b){ return Number(a)-Number(b); });
-  var lines = keys.length ? keys.map(function(k){
-    var raw = act[k];
-    var st = raw === 'kundig' ? 'kundig' : (raw === 'unkundig' ? 'auffrischung' : 'nicht kundig');
-    var missing = [];
-    try {
-      if (typeof getNeutralOverrideLabelsForLine === 'function' && svgRoot) {
-        missing = getNeutralOverrideLabelsForLine(k) || [];
-      }
-    } catch (e) {}
-    if (missing.length) {
-      return k + ': ' + st + ' (nicht vollständig; nicht kundig: ' + missing.join(', ') + ')';
-    }
-    return k + ': ' + st;
-  }).join('\n') : 'Keine Linien markiert.';
 
-  var ov = (payload.selection && payload.selection.overrides) ? payload.selection.overrides : {};
-  var ovKeys = Object.keys(ov);
-  ovKeys.sort();
-  var ovLines = ovKeys.length ? ovKeys.map(function(id){
-    var stRaw = ov[id];
-    var st = stRaw === 'kundig' ? 'kundig' : (stRaw === 'unkundig' ? 'auffrischung' : 'nicht kundig');
-    var label = '';
-    var labelRaw = '';
-    var dataCode = '';
-    var dataLines = [];
-    try {
-      if (svgRoot) {
-        var el = svgRoot.getElementById ? svgRoot.getElementById(id) : null;
-        if (!el) el = document.getElementById(id);
-        if (el) {
-          labelRaw = String(el.getAttribute('inkscape:label') || '').trim();
-          label = labelRaw;
-          if (!label) label = (typeof getLabelForEl === 'function') ? getLabelForEl(el) : (el.id || '');
-          dataCode = String(el.getAttribute('data-code') || '').trim();
-          try {
-            var attrs = el.getAttributeNames ? el.getAttributeNames() : [];
-            for (var i=0;i<attrs.length;i++) {
-              var a = attrs[i];
-              if (a.indexOf('data-line') === 0) {
-                var v = String(el.getAttribute(a) || '').trim();
-                if (v) dataLines.push(a + '=' + v);
-              }
-            }
-          } catch(e) {}
-        }
-      }
-    } catch(e) {}
-    var extra = '';
-    if (labelRaw) extra += ' inkscape:label=' + labelRaw;
-    if (dataCode) extra += (extra ? ' ' : '') + 'data-code=' + dataCode;
-    if (dataLines.length) extra += (extra ? ' ' : '') + dataLines.join(' ');
-    return '- ' + (label || id) + ' [' + id + ']: ' + st + (extra ? ' (' + extra + ')' : '');
-  }).join('\n') : 'Keine.';
 
-  return 'Streckenkundekarte gespeichert\n' +
-    'Name: ' + (meta.nachname || '') + '\n' +
-    'Vorname: ' + (meta.vorname || '') + '\n' +
-    'Datum: ' + (meta.datum || '') + '\n\n' +
-    'Markierte Linien:\n' + lines + '\n\n' +
-    'Punkt-Overrides (manuell):\n' + ovLines + '\n\n' +
-    'Hinweis: Für vollständige Details bitte die JSON-Datei mitsenden.';
-}
-function openMail(payload) {
-  var meta = payload.meta || {};
-  var subj = ('Streckenkundekarte gespeichert - ' + (meta.nachname || '') + ' ' + (meta.vorname || '') + ' - ' + (meta.datum || '')).trim();
-  var body = summarizeForMail(payload);
-  window.location.href = 'mailto:?subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(body);
-}
+
+
 
 window.addEventListener('load', function(){
   try {
@@ -1264,6 +1258,16 @@ window.addEventListener('load', function(){
     toast('Streckenkundekarte gespeichert (Datei).');
   });
 
+ // Laden (Datei): öffnet Dateiauswahl (stateFile)
+ var bl = $('loadJson');
+ var sf = $('stateFile');
+ if (bl && sf) bl.addEventListener('click', function(){ try{ sf.value=''; }catch(e){} sf.click(); });
+
+ // Teilen…
+ var bs = $('shareJson');
+ if (bs) bs.addEventListener('click', function(){ shareOrDownloadJson(); });
+
+
   var b2 = $('saveLocal');
   if (b2) b2.addEventListener('click', function(){
     var payload = getExportPayload();
@@ -1278,16 +1282,7 @@ window.addEventListener('load', function(){
     if (applyLoadedPayload(payload)) toast('Streckenkundekarte geladen.');
     else toast('Gespeicherte Daten sind ungültig.');
   });
-
-  var b4 = $('sendMail');
-  if (b4) b4.addEventListener('click', function(){
-    var payload = getExportPayload();
-    var meta = payload.meta;
-    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Name, Vorname und Datum ausfüllen.'); return; }
-    openMail(payload);
-  });
-
-  var sf = $('stateFile');
+var sf = $('stateFile');
   if (sf) sf.addEventListener('change', function(ev){
     var f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
     if (!f) return;
