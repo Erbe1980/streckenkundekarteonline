@@ -184,8 +184,8 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:23 UTC</div>
-      <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:28 UTC</div>
+      <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
     </div>
     <div class="headerRight">
 <div class="actionsBar"> 
@@ -229,7 +229,7 @@ header{ padding: 10px 12px; }
     <div class="row">
       <label>Auswahl</label>
       <div id="selectedRoute" class="hint"></div>
-  <div class="row" style="margin-top:8px; margin-bottom:0;">
+  <div class="row" style="margin-top:8px;">
     <label>Ansicht</label>
     <div class="btns">
       <button type="button" class="btn" id="jumpToLine">Zur Strecke springen</button>
@@ -789,6 +789,11 @@ function renderOrtskenntnisList() {
 
       row.addEventListener('click', () => {
         setSelectedLineUi(line);
+      try{
+        var aj = document.getElementById('autoJump');
+        var jz = document.getElementById('jumpZoom');
+        if (aj && aj.checked && jz) zoomToLine(line, Number(jz.value || '1.3'));
+      }catch(e){}
         toast(`Linie gewählt: ${line}`);
       });
 
@@ -952,69 +957,41 @@ function renderOrtskenntnisList() {
     view.base = getInitialViewBox(svgRoot);
     setViewBox({ ...view.base });
 
-    
+    rebuildRouteList();
+    enablePointClickCycle();
+    enablePanHandlers();
+    enableWheelZoom();
+ enableTouchGestures();
 
-// === Datei/Browser Buttons + Sprung/Zoom ==================================
-function ensureButtonBindings(){
-  // Datei: Speichern/Laden/Teilen
-  var bFileSave = $('saveJson');
-  if (bFileSave && !bFileSave.dataset.bound){
-    bFileSave.dataset.bound = '1';
-    bFileSave.addEventListener('click', function(ev){
-      ev.preventDefault();
-      var payload = getExportPayload();
-      var meta = payload.meta || {};
-      if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
-      downloadJson(payload);
-      toast('Datei gespeichert.');
-    });
-  }
+    applySelection();
+    renderActiveLines();
 
-  var bFileLoad = $('loadJson');
-  var sf = $('stateFile');
-  if (bFileLoad && sf && !bFileLoad.dataset.bound){
-    bFileLoad.dataset.bound = '1';
-    bFileLoad.addEventListener('click', function(ev){
-      ev.preventDefault();
-      try{ sf.value=''; }catch(e){}
-      sf.click();
-    });
-  }
+    toast('SVG geladen.');
+  
+  renderOrtskenntnisList();
+}
 
-  var bShare = $('shareJson');
-  if (bShare && !bShare.dataset.bound){
-    bShare.dataset.bound = '1';
-    bShare.addEventListener('click', function(ev){
-      ev.preventDefault();
-      shareOrDownloadJson();
-    });
-  }
+// === Sprung zu Strecke (BBox) =============================================
+function _extractLineTokens(val){
+  // extrahiert alle Ziffernfolgen (z.B. "101/102" -> ["101","102"]) 
+  const s = String(val || '');
+  const m = s.match(/\d+/g);
+  return m ? m : [];
+}
 
-  // Browser: Speichern/Laden
-  var bBS = $('saveBrowser');
-  if (bBS && !bBS.dataset.bound){
-    bBS.dataset.bound = '1';
-    bBS.addEventListener('click', function(ev){
-      ev.preventDefault();
-      var payload = getExportPayload();
-      var meta = payload.meta || {};
-      if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
-      saveToBrowser(payload);
-      toast('Im Browser gespeichert.');
-    });
-  }
-
-  var bBL = $('loadBrowser');
-  if (bBL && !bBL.dataset.bound){
-    bBL.dataset.bound = '1';
-    bBL.addEventListener('click', function(ev){
-      ev.preventDefault();
-      var payload = loadFromBrowser();
-      if (!payload) { toast('Keine Daten im Browser gespeichert.'); return; }
-      if (applyLoadedPayload(payload)) toast('Aus Browser geladen.');
-      else toast('Gespeicherte Daten sind ungültig.');
-    });
-  }
+function matchesLineForJump(el, lineDigits){
+  const target = String(lineDigits || '').replace(/\D+/g,'');
+  if (!target) return false;
+  try{
+    const attrs = el.getAttributeNames ? el.getAttributeNames() : [];
+    for (let i=0;i<attrs.length;i++){
+      const a = attrs[i];
+      if (!a.startsWith('data-line')) continue;
+      const tokens = _extractLineTokens(el.getAttribute(a));
+      if (tokens.includes(target)) return true;
+    }
+  }catch(e){}
+  return false;
 }
 
 function unionBBox(a, b){
@@ -1035,10 +1012,10 @@ function getLineBBox(line){
   try{
     svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(el => {
       if (!isPoint(el)) return;
-      if (!matchesAnyLine(el, ln)) return;
+      if (!matchesLineForJump(el, ln)) return;
       try{
         const b = el.getBBox();
-        if (b && isFinite(b.width) && b.width > 0) bb = unionBBox(bb, b);
+        if (b && isFinite(b.width) && isFinite(b.height)) bb = unionBBox(bb, b);
       }catch(e){}
     });
   }catch(e){}
@@ -1056,7 +1033,6 @@ function zoomToLine(line, zoomMul){
   let w = bb.width  + 2*pad;
   let h = bb.height + 2*pad;
 
-  // Zoom-Multiplikator: >1 = näher ran
   const zm = Number(zoomMul || 1.0);
   if (isFinite(zm) && zm > 0){
     const cx = x + w/2;
@@ -1070,72 +1046,6 @@ function zoomToLine(line, zoomMul){
   setViewBox({ x: x, y: y, w: w, h: h });
 }
 
-function wireJumpUi(){
-  const btnJump = $('jumpToLine');
-  const btnFit  = $('jumpFit');
-  const chkAuto = $('autoJump');
-  const selZoom = $('jumpZoom');
-
-  const currentLine = () => $('lineSelect') ? $('lineSelect').value : '';
-  const zoomMul = () => selZoom ? Number(selZoom.value || '1.0') : 1.0;
-
-  if (btnJump && !btnJump.dataset.bound){
-    btnJump.dataset.bound = '1';
-    btnJump.addEventListener('click', () => {
-      const ln = currentLine();
-      if (!ln) { toast('Bitte zuerst eine Strecke wählen.'); return; }
-      zoomToLine(ln, zoomMul());
-    });
-  }
-  if (btnFit && !btnFit.dataset.bound){
-    btnFit.dataset.bound = '1';
-    btnFit.addEventListener('click', () => {
-      const ln = currentLine();
-      if (!ln) { resetView(); return; }
-      zoomToLine(ln, 1.0);
-    });
-  }
-
-  // Hook in die bestehende Auswahlfunktion: nach setSelectedLineUi()
-  if (chkAuto){
-    window.__autoJumpEnabled = () => !!chkAuto.checked;
-  } else {
-    window.__autoJumpEnabled = () => false;
-  }
-  window.__autoJumpZoom = () => zoomMul();
-}
-
-// Patch: beim Anklicken in der Streckenliste automatisch springen (wenn aktiv)
-(function(){
-  const orig = window.setSelectedLineUi;
-  if (typeof orig === 'function' && !window.__patchedSetSelectedLineUi){
-    window.__patchedSetSelectedLineUi = true;
-    window.setSelectedLineUi = function(line){
-      orig(line);
-      try{
-        const ok = window.__autoJumpEnabled ? window.__autoJumpEnabled() : false;
-        if (ok && line){
-          const zm = window.__autoJumpZoom ? window.__autoJumpZoom() : 1.3;
-          // kleiner Tick, damit UI-Update zuerst kommt
-          setTimeout(() => zoomToLine(line, zm), 0);
-        }
-      }catch(e){}
-    };
-  }
-})();
-rebuildRouteList();
-    enablePointClickCycle();
-    enablePanHandlers();
-    enableWheelZoom();
- enableTouchGestures();
-
-    applySelection();
-    renderActiveLines();
-
-    toast('SVG geladen.');
-  
-  renderOrtskenntnisList();
-}
 
   function setSelectedLineStatus(status) {
   const line = $('lineSelect').value;
@@ -1484,13 +1394,36 @@ function restoreMeta(){
   }catch(e){}
 }
 
+
+
+function wireJumpButtons(){
+  var btnJump = $('jumpToLine');
+  var btnFit  = $('jumpFit');
+  var selZoom = $('jumpZoom');
+  if (btnJump && !btnJump.dataset.bound){
+    btnJump.dataset.bound = '1';
+    btnJump.addEventListener('click', function(){
+      var ln = $('lineSelect') ? $('lineSelect').value : '';
+      if (!ln) { toast('Bitte zuerst eine Strecke wählen.'); return; }
+      var zm = selZoom ? Number(selZoom.value || '1.3') : 1.3;
+      zoomToLine(ln, zm);
+    });
+  }
+  if (btnFit && !btnFit.dataset.bound){
+    btnFit.dataset.bound = '1';
+    btnFit.addEventListener('click', function(){
+      var ln = $('lineSelect') ? $('lineSelect').value : '';
+      if (!ln) { resetView(); return; }
+      zoomToLine(ln, 1.0);
+    });
+  }
+}
 window.addEventListener('load', function(){
   try {
     var d = $('datum');
     if (d && !d.value) d.value = todayISO();
+  try{ wireJumpButtons(); }catch(e){}
 
-  try{ ensureButtonBindings(); }catch(e){}
-  try{ wireJumpUi(); }catch(e){}
 
  
   } catch (e) {}
