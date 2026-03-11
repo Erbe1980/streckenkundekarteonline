@@ -1211,20 +1211,8 @@ async function shareOrDownloadJson(){
   toast('Datei heruntergeladen (danach in Dateien teilen).');
 }
 
-function wireActionModeToggle(){
-  const bar = document.querySelector('.actionsBar');
-  const btn = document.getElementById('actionModeToggle');
-  if (!bar || !btn) return;
-  const apply = (mode) => {
-    bar.setAttribute('data-mode', mode);
-    btn.innerHTML = 'Modus: <b>' + (mode === 'icons' ? 'Icons' : 'Text') + '</b>';
-  };
-  btn.addEventListener('click', () => {
-    const cur = bar.getAttribute('data-mode') || 'text';
-    apply(cur === 'icons' ? 'text' : 'icons');
-  });
-  apply(bar.getAttribute('data-mode') || 'text');
-}
+
+
 function downloadJson(payload) {
   var meta = payload.meta || {};
   var fn = 'streckenkundekarte_' + safeFilePart(meta.nachname) + '_' + safeFilePart(meta.vorname) + '_' + safeFilePart(meta.datum) + '.json';
@@ -1293,7 +1281,7 @@ window.addEventListener('load', function(){
     var d = $('datum');
     if (d && !d.value) d.value = todayISO();
 
- wireActionModeToggle();
+ 
   } catch (e) {}
 
   var b1 = $('saveJson');
@@ -1403,6 +1391,7 @@ rebuildRouteList();
   }
 
   let running = false;
+ let done = false;
   async function autoload(){
     if(running) return;
     running = true;
@@ -1411,6 +1400,8 @@ rebuildRouteList();
       setStatus('lade SVG …');
       await loadSvgViaObject();
       setStatus('fertig');
+ done = true;
+ window.__autoloadDone = true;
     } catch(e){
       setStatus('Fehler: ' + (e && e.message ? e.message : e));
       const host = document.getElementById('mapHost');
@@ -1426,6 +1417,7 @@ rebuildRouteList();
   }
 
   function schedule(){
+ if (done) return;
     setTimeout(autoload, 0);
     setTimeout(autoload, 250);
     setTimeout(autoload, 1200);
