@@ -190,7 +190,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:54 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 13:06 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
@@ -236,14 +236,11 @@ header{ padding: 10px 12px; }
 <h2>Modus</h2>
 <div class="row" id="modeBlock" style="margin-bottom:12px;">
   <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    <button type="button" class="btn modeBtn active" data-mode="wischen">Wischen</button>
-    <button type="button" class="btn modeBtn" data-mode="einzeln">Einzeln</button>
+    <button type="button" class="btn modeBtn active" data-mode="einzeln">Einzeln</button>
     <button type="button" class="btn modeBtn" data-mode="linien">Linien</button>
+    <button type="button" class="btn modeBtn" data-mode="wischen">Wischen (fixiert)</button>
   </div>
-  <label style="display:flex; gap:8px; align-items:center; margin:0;">
-    <input id="lockMap" type="checkbox" style="width:auto;" checked> Karte fixieren
-  </label>
-  <div class="hint" id="modeHint">Wischen: Karte ist fixiert. Über Stationen wischen zum Markieren.</div>
+  <div class="hint" id="modeHint">Einzeln: Status wählen, dann Station antippen. Karte bleibt frei zum Verschieben/Zoomen.</div>
 </div>
 
 <h2>Status</h2>
@@ -253,7 +250,7 @@ header{ padding: 10px 12px; }
     <button type="button" class="btn statusBtn" data-status="unkundig">Auffrischung</button>
     <button type="button" class="btn statusBtn" data-status="neutral">Nicht kundig</button>
   </div>
-  <div class="hint">Wischen: Karte fixiert. Einzeln: Tippen schaltet weiter. Linien: Status setzt die gewählte Linie.</div>
+  <div class="hint">Status gilt für Einzeln und Wischen. In Linien setzt der Status die gewählte Linie.</div>
 </div>
 
 <h2>Strecke wählen & markieren</h2>
@@ -332,15 +329,13 @@ header{ padding: 10px 12px; }
   const $ = (id) => document.getElementById(id);
 
 // --- UI State: Modus + Status ---
-window.__uiState = { mode: 'wischen', status: 'kundig' };
+window.__uiState = { mode: 'einzeln', status: 'kundig' };
 function setMode(m){
   window.__uiState.mode = m;
   document.querySelectorAll('.modeBtn').forEach(b => b.classList.toggle('active', b.getAttribute('data-mode')===m));
-  const lm = $('lockMap');
-  if (lm){ lm.checked = (m === 'wischen'); }
   const hint = $('modeHint');
   if (hint){
-    hint.textContent = (m === 'wischen') ? 'Wischen: Karte ist fixiert. Über Stationen wischen zum Markieren.' : (m === 'einzeln' ? 'Einzeln: Tippen schaltet weiter (kundig → auffrischung → nicht kundig).' : 'Linien: Streckenliste nutzen und Status für die gewählte Linie setzen.');
+    hint.textContent = (m === 'wischen') ? 'Wischen (fixiert): Karte bewegt sich nicht. Über Stationen wischen zum Markieren.' : (m === 'einzeln' ? 'Einzeln: Status wählen, dann Station antippen. Karte bleibt frei.' : 'Linien: Streckenliste nutzen und Status für die gewählte Linie setzen.');
   }
 }
 function setStatus(st){
@@ -349,7 +344,6 @@ function setStatus(st){
 }
 function curMode(){ return window.__uiState.mode; }
 function curStatus(){ return window.__uiState.status; }
-function lockEnabled(){ const lm = $('lockMap'); return !!(lm && lm.checked); }
 
 // === iOS: Tap auf sichtbaren <path> -> Marker-Element finden (data-typ/data-type) ===
 function findPointFromTarget(t){
@@ -411,21 +405,14 @@ function enableTouchGestures(){
     setVisual(el, st);
   }
 
-  function cyclePoint(el){
+  function setPointStatus(el){
     if (!el || !el.id) return;
-    const order = ['kundig','unkundig','neutral'];
-    let cur = 'neutral';
-    try{
-      if (selection.overrides && selection.overrides[el.id]) cur = selection.overrides[el.id];
-      else cur = getLineStatusForElement(el);
-    }catch(e){}
-    const idx = Math.max(0, order.indexOf(cur));
-    const next = order[(idx + 1) % order.length];
+    const st = (curStatus ? curStatus() : 'kundig');
     selection.overrides = selection.overrides || {};
-    selection.overrides[el.id] = next;
+    selection.overrides[el.id] = st;
     applySelection();
     renderActiveLines();
-    toast(`${pointDisplayName(el)}: ${next === 'kundig' ? 'kundig' : (next === 'unkundig' ? 'auffrischung' : 'nicht kundig')}`);
+    toast(`${pointDisplayName(el)}: ${st === 'kundig' ? 'kundig' : (st === 'unkundig' ? 'auffrischung' : 'nicht kundig')}`);
   }
 
   svgRoot.addEventListener('touchstart', (e)=>{
@@ -433,12 +420,13 @@ function enableTouchGestures(){
     moved = 0;
 
     if (curMode && curMode() === 'wischen'){
+      // Karte fixiert: nur markieren
       if (e.touches.length === 1){
         mode = 'mark';
         markSet = new Set();
         lastMarkTs = 0;
         const t = e.touches[0];
-        const pt = pointFromClientXYRadius(t.clientX, t.clientY, 18);
+        const pt = pointFromClientXYRadius(t.clientX, t.clientY, 30);
         if (pt) markPoint(pt);
         moved = 20;
       }
@@ -446,14 +434,13 @@ function enableTouchGestures(){
       return;
     }
 
-    // Einzeln/Linien
+    // Einzeln/Linien: Pan/Pinch aktiv
     if (e.touches.length === 1){
       mode = 'pan';
       const t = e.touches[0];
       pan = { x: t.clientX, y: t.clientY, vb: { ...view.cur }, t: Date.now(), target: e.target };
       pinch = null;
     } else if (e.touches.length >= 2){
-      if (lockEnabled && lockEnabled()) { e.preventDefault(); return; }
       mode = 'pinch';
       pinch = { dist: dist(e.touches[0], e.touches[1]), vb: { ...view.cur } };
       pan = null;
@@ -467,14 +454,13 @@ function enableTouchGestures(){
 
     if (mode === 'mark' && e.touches.length === 1){
       const t = e.touches[0];
-      const pt = pointFromClientXYRadius(t.clientX, t.clientY, 18);
+      const pt = pointFromClientXYRadius(t.clientX, t.clientY, 30);
       if (pt) markPoint(pt);
       e.preventDefault();
       return;
     }
 
     if (mode === 'pan' && pan && e.touches.length === 1){
-      if (lockEnabled && lockEnabled()) { e.preventDefault(); return; }
       const t = e.touches[0];
       const dx = t.clientX - pan.x;
       const dy = t.clientY - pan.y;
@@ -522,12 +508,12 @@ function enableTouchGestures(){
       return;
     }
 
-    // Tap für Modus Einzeln: weiter schalten
+    // Tap für Modus Einzeln: setzt den gewählten Status
     try{
       if (pan && (Date.now() - pan.t) < 350 && moved < 10){
         if (curMode && curMode() === 'einzeln'){
-          const pt = pointFromClientXYRadius(pan.x, pan.y, 12) || findPointFromTarget(pan.target);
-          if (pt && isPoint(pt)) cyclePoint(pt);
+          const pt = pointFromClientXYRadius(pan.x, pan.y, 16) || findPointFromTarget(pan.target);
+          if (pt && isPoint(pt)) setPointStatus(pt);
         }
       }
     }catch(err){}
@@ -907,31 +893,20 @@ function renderOrtskenntnisList() {
     if (cur) setSelectedLineUi(cur);
   }
 
-  function enablePointClickCycle() {
- if (!svgRoot) return;
- svgRoot.addEventListener('click', (ev) => {
-   const pt = findPointFromTarget(ev.target);
-   if (!pt || !isPoint(pt)) return;
-   const id = pt.id;
-   if (!id) return;
-
-   const baseStatus = getLineStatusForElement(pt);
-   const cur = selection.overrides[id] || '';
-   let next = 'kundig';
-   if (cur === '') next = 'kundig';
-   else if (cur === 'kundig') next = 'unkundig';
-   else if (cur === 'unkundig') next = 'neutral';
-   else if (cur === 'neutral') next = '';
-
-   if (next === '') delete selection.overrides[id];
-   else selection.overrides[id] = next;
-
-   applySelection();
-   renderActiveLines();
-   const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
-   toast(`${id}: ${msg}`);
-   ev.stopPropagation();
- });
+  function enablePointClickCycle(){
+  if (!svgRoot) return;
+  svgRoot.addEventListener('click', (ev) => {
+    if (curMode && curMode() !== 'einzeln') return;
+    const pt = findPointFromTarget(ev.target);
+    if (!pt || !isPoint(pt)) return;
+    const st = (curStatus ? curStatus() : 'kundig');
+    selection.overrides = selection.overrides || {};
+    selection.overrides[pt.id] = st;
+    applySelection();
+    renderActiveLines();
+    toast(`${pointDisplayName(pt)}: ${st === 'kundig' ? 'kundig' : (st === 'unkundig' ? 'auffrischung' : 'nicht kundig')}`);
+    ev.stopPropagation();
+  });
 }
 
   function getInitialViewBox(svg) {
@@ -1121,14 +1096,14 @@ selection.activeLines[line] = status;
   renderOrtskenntnisList();
 }
 
-  $('svgFile').addEventListener('change', async (e) => {
+  var _sf=$('svgFile'); if(_sf) _sf.addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     const txt = await readFileAsText(f);
     embedSvg(txt);
   });
 
-  $('indexFile').addEventListener('change', async (e) => {
+  var _if=$('indexFile'); if(_if) _if.addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     try {
@@ -1441,7 +1416,7 @@ function wireModeStatusUi(){
     btn.dataset.bound = '1';
     btn.addEventListener('click', (ev)=>{
       ev.preventDefault();
-      setMode(btn.getAttribute('data-mode') || 'wischen');
+      setMode(btn.getAttribute('data-mode') || 'einzeln');
     });
   });
 
@@ -1454,19 +1429,13 @@ function wireModeStatusUi(){
       try{ if (curMode && curMode()==='linien') applyStatusToSelectedLine(); }catch(e){}
     });
   });
-
-  const lm = $('lockMap');
-  if (lm && !lm.dataset.bound){
-    lm.dataset.bound='1';
-    lm.addEventListener('change', ()=>{ if (curMode()==='wischen') lm.checked = true; });
-  }
 }
 window.addEventListener('load', function(){
   try {
     var d = $('datum');
     if (d && !d.value) d.value = todayISO();
   try{ wireModeStatusUi(); }catch(e){}
-  try{ setMode('wischen'); setStatus('kundig'); }catch(e){}
+  try{ setMode('einzeln'); setStatus('kundig'); }catch(e){}
 
   // Personendaten merken
   try{ restoreMeta(); }catch(e){}
