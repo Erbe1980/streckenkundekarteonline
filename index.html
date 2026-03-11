@@ -128,23 +128,6 @@ header { flex: 0 0 auto; }
 /* Force: Build/Status immer sichtbar */
 #buildId, #autoloadStatus { display:block !important; }
 
-
-/* iOS isolate map gestures */
-.mapWrap, #mapHost, #svgObj, #mapHost svg{
-  touch-action: none;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-}
-.mapWrap{ overscroll-behavior: contain; }
-#mapHost{ overflow: hidden; }
-.routeList{ -webkit-overflow-scrolling: touch; }
-.panel{ overflow:auto; }
-
-/* Kleine Zoom-Buttons */
-.mapBtns{ position:absolute; left:10px; top:10px; display:flex; gap:8px; z-index:5; }
-.mapBtn{ background: rgba(18,26,43,0.9); border:1px solid rgba(35,49,77,0.9); color:#e8eefc; padding:6px 10px; border-radius:10px; font-weight:700; }
-
 </style>
 
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -163,7 +146,7 @@ header { flex: 0 0 auto; }
 
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 06:51 UTC</div>
+  <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 07:12 UTC</div>
   <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
 </header>
 
@@ -180,10 +163,10 @@ header { flex: 0 0 auto; }
  </div>
  <div class="btns" style="margin-top:8px;">
    <button class="btn primary full" id="saveJson">Speichern (Datei)</button>
+ <button class="btn full" id="shareJson">Teilen…</button>
    <button class="btn" id="saveLocal">Speichern (Browser)</button>
    <button class="btn" id="loadLocal">Laden (Browser)</button>
-   <button class="btn full" id="sendMail">Per E-Mail senden</button>
- </div>
+</div>
  <div class="row" style="margin-top:10px;">
    <label>Streckenkundekarte laden (JSON)</label>
    <input id="stateFile" type="file" accept="application/json,.json" />
@@ -238,12 +221,7 @@ header { flex: 0 0 auto; }
 
   <section class="mapWrap">
     <div class="zoomHint">Zoom: Mausrad · Pan: Alt+Drag / Mitteltaste</div>
-    <div class="mapBtns">
-  <button class="mapBtn" id="zoomIn" title="Zoom +">+</button>
-  <button class="mapBtn" id="zoomOut" title="Zoom -">−</button>
-  <button class="mapBtn" id="zoomReset" title="Ansicht zurücksetzen">⟲</button>
-</div>
-<div id="mapHost">
+    <div id="mapHost">
       <div style="color:#111; font-family: system-ui; padding:12px;">
         <b>SVG noch nicht geladen.</b><br>
         Lade links deine SVG-Datei.
@@ -292,184 +270,6 @@ header { flex: 0 0 auto; }
   };
 
   const $ = (id) => document.getElementById(id);
-
-// === Touch/Click robust (iOS + SVG-Export-Struktur) =======================
-function findPointFromTarget(t){
-  if (!t) return null;
-  // a) target/parents
-  let el = t;
-  for (let k=0; k<10 && el; k++){
-    if (el.getAttribute && (el.getAttribute('data-typ') || el.getAttribute('data-type'))) return el;
-    el = el.parentElement;
-  }
-  // b) previous siblings (häufig: Marker-Element vor sichtbarem <path>)
-  let sib = t.previousElementSibling;
-  for (let k=0; k<8 && sib; k++){
-    if (sib.getAttribute && (sib.getAttribute('data-typ') || sib.getAttribute('data-type'))) return sib;
-    sib = sib.previousElementSibling;
-  }
-  // c) parent previous siblings
-  if (t.parentElement){
-    sib = t.parentElement.previousElementSibling;
-    for (let k=0; k<8 && sib; k++){
-      if (sib.getAttribute && (sib.getAttribute('data-typ') || sib.getAttribute('data-type'))) return sib;
-      sib = sib.previousElementSibling;
-    }
-  }
-  return null;
-}
-
-function cyclePoint(el){
-  const id = el && el.id ? el.id : '';
-  if (!id) { toast('Punkt hat keine ID (SVG anpassen).'); return; }
-
-  const baseStatus = getLineStatusForElement(el);
-  const cur = selection.overrides[id] || '';
-
-  // neutral -> blau; wenn Linie wirkt -> neutral (Override); dann blau -> rot -> zurück
-  let next = '';
-  if (cur === '') {
-    next = (baseStatus === 'neutral') ? 'kundig' : 'neutral';
-  } else if (cur === 'neutral') {
-    next = 'kundig';
-  } else if (cur === 'kundig') {
-    next = 'unkundig';
-  } else if (cur === 'unkundig') {
-    next = '';
-  }
-
-  if (next === '') delete selection.overrides[id];
-  else selection.overrides[id] = next;
-
-  applySelection();
-  renderActiveLines();
-  toast(`${id}: ${selection.overrides[id] ? selection.overrides[id] : 'Linie'}`);
-}
-
-function zoomAtCenter(scale){
-  if (!svgRoot || !view.cur || !view.base) return;
-  const vb = { ...view.cur };
-  const cx = vb.x + vb.w/2;
-  const cy = vb.y + vb.h/2;
-  const nw = vb.w * scale;
-  const nh = vb.h * scale;
-  const minW = view.base.w * 0.02;
-  const maxW = view.base.w * 20;
-  if (nw < minW || nw > maxW) return;
-  setViewBox({ x: cx - nw/2, y: cy - nh/2, w: nw, h: nh });
-}
-
-function enableTouchGestures(){
-  if (!svgRoot) return;
-
-  let mode = 'none';
-  let start = null; // {x,y,t,vb,target}
-  let pinch = null; // {dist,vb}
-  let moved = 0;
-
-  function dist(t1, t2){
-    const dx = t1.clientX - t2.clientX;
-    const dy = t1.clientY - t2.clientY;
-    return Math.sqrt(dx*dx + dy*dy);
-  }
-
-  function clientToSvgXY(cx, cy){
-    const pt = svgRoot.createSVGPoint();
-    pt.x = cx; pt.y = cy;
-    const ctm = svgRoot.getScreenCTM();
-    if (!ctm) return {x:0,y:0};
-    const sp = pt.matrixTransform(ctm.inverse());
-    return {x: sp.x, y: sp.y};
-  }
-
-  svgRoot.addEventListener('touchstart', (e)=>{
-    if (!view.cur || !view.base) return;
-    moved = 0;
-
-    if (e.touches.length === 1){
-      mode = 'pan';
-      const t = e.touches[0];
-      start = { x: t.clientX, y: t.clientY, t: Date.now(), vb: { ...view.cur }, target: e.target };
-      pinch = null;
-    } else if (e.touches.length >= 2){
-      mode = 'pinch';
-      const t1 = e.touches[0], t2 = e.touches[1];
-      pinch = { dist: dist(t1,t2), vb: { ...view.cur } };
-      start = null;
-    }
-    e.preventDefault();
-  }, {passive:false});
-
-  svgRoot.addEventListener('touchmove', (e)=>{
-    if (!view.cur || !view.base) return;
-
-    if (mode === 'pan' && start && e.touches.length === 1){
-      const t = e.touches[0];
-      const dx = t.clientX - start.x;
-      const dy = t.clientY - start.y;
-      moved = Math.max(moved, Math.abs(dx) + Math.abs(dy));
-
-      const rect = svgRoot.getBoundingClientRect();
-      const sx = start.vb.w / rect.width;
-      const sy = start.vb.h / rect.height;
-
-      setViewBox({ x: start.vb.x - dx*sx, y: start.vb.y - dy*sy, w: start.vb.w, h: start.vb.h });
-      view.lastGestureTs = Date.now();
-    }
-
-    if (mode === 'pinch' && pinch && e.touches.length >= 2){
-      const t1 = e.touches[0], t2 = e.touches[1];
-      const d = dist(t1,t2);
-      if (d <= 0) return;
-      const scale = pinch.dist / d;
-
-      const vb0 = pinch.vb;
-      const nw = vb0.w * scale;
-      const nh = vb0.h * scale;
-      const minW = view.base.w * 0.02;
-      const maxW = view.base.w * 20;
-      if (nw < minW || nw > maxW) return;
-
-      const mx = (t1.clientX + t2.clientX)/2;
-      const my = (t1.clientY + t2.clientY)/2;
-      const midSvg = clientToSvgXY(mx, my);
-
-      const nx = midSvg.x - (midSvg.x - vb0.x) * (nw / vb0.w);
-      const ny = midSvg.y - (midSvg.y - vb0.y) * (nh / vb0.h);
-
-      setViewBox({ x: nx, y: ny, w: nw, h: nh });
-      view.lastGestureTs = Date.now();
-      moved = Math.max(moved, 20);
-    }
-
-    e.preventDefault();
-  }, {passive:false});
-
-  svgRoot.addEventListener('touchend', (e)=>{
-    try{
-      if (start && mode === 'pan'){
-        const dt = Date.now() - start.t;
-        const wasTap = (moved < 10) && (dt < 350);
-        if (wasTap){
-          const pt = findPointFromTarget(start.target);
-          if (pt && isPoint(pt)) cyclePoint(pt);
-        }
-      }
-    }catch(err){}
-
-    if (e.touches.length === 0){
-      mode = 'none';
-      start = null;
-      pinch = null;
-      moved = 0;
-    }
-
-    e.preventDefault();
-  }, {passive:false});
-}
-
-// ========================================================================
-
 
   function toast(msg) {
     const t = $("toast");
@@ -624,7 +424,7 @@ function getOrtskenntnisPointsForLine(line) {
 function renderMetaForSelectedLine() {
   const host = $('metaForSelectedLine');
   if (!host) return;
-  const line = ($('lineSelect') ? $('lineSelect').value : '');
+  const line = $('lineSelect').value;
   if (!line || !svgRoot) { host.innerHTML = ''; return; }
   const lineStatus = selection.activeLines[line] || '';
   if (lineStatus !== 'kundig') { host.innerHTML = ''; return; }
@@ -800,15 +600,37 @@ function renderOrtskenntnisList() {
   }
 
   function enablePointClickCycle() {
-  if (!svgRoot) return;
-  // Desktop Click: auf iOS kommt Tap über enableTouchGestures()
-  svgRoot.addEventListener('click', (ev) => {
-    const nowTs = Date.now();
-    if (view && view.lastGestureTs && (nowTs - view.lastGestureTs) < 250) return;
-    const pt = findPointFromTarget(ev.target);
-    if (pt && isPoint(pt)) cyclePoint(pt);
-  });
-}
+    if (!svgRoot) return;
+    svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(el => {
+      if (!isPoint(el)) return;
+      if (el.dataset.boundClick === '1') return;
+      el.dataset.boundClick = '1';
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', (ev) => {
+        const id = el.id;
+        if (!id) return;
+
+        const baseStatus = getLineStatusForElement(el);
+        const cur = selection.overrides[id] || '';
+
+        let next = 'neutral';
+        if (cur === '') next = 'neutral';
+        else if (cur === 'neutral') next = 'kundig';
+        else if (cur === 'kundig') next = 'unkundig';
+        else if (cur === 'unkundig') next = '';
+
+        if (next === '') delete selection.overrides[id];
+        else selection.overrides[id] = next;
+
+        applySelection();
+        renderActiveLines();
+
+        const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
+        toast(`${id}: ${msg}`);
+        ev.stopPropagation();
+      });
+    });
+  }
 
   function getInitialViewBox(svg) {
     const vb = svg.getAttribute('viewBox');
@@ -905,7 +727,6 @@ function renderOrtskenntnisList() {
   function resetView() {
     if (!view.base) return;
     setViewBox({ ...view.base });
- zoomAtCenter(0.65);
     toast('Ansicht zurückgesetzt.');
   }
 
@@ -936,13 +757,11 @@ function renderOrtskenntnisList() {
 
     view.base = getInitialViewBox(svgRoot);
     setViewBox({ ...view.base });
- zoomAtCenter(0.65);
 
     rebuildRouteList();
     enablePointClickCycle();
     enablePanHandlers();
     enableWheelZoom();
- enableTouchGestures();
 
     applySelection();
     renderActiveLines();
@@ -953,7 +772,7 @@ function renderOrtskenntnisList() {
 }
 
   function setSelectedLineStatus(status) {
-  const line = ($('lineSelect') ? $('lineSelect').value : '');
+  const line = $('lineSelect').value;
   if (!line) { toast('Bitte zuerst eine Strecke in der Liste wählen.'); return; }
   const prev = selection.activeLines[line];
   if (status === 'unkundig' && prev === 'kundig') {
@@ -970,7 +789,7 @@ function renderOrtskenntnisList() {
 
 
   function removeSelectedLine() {
-    const line = ($('lineSelect') ? $('lineSelect').value : '');
+    const line = $('lineSelect').value;
     if (!line) { toast('Bitte zuerst eine Strecke in der Liste wählen.'); return; }
     delete selection.activeLines[line];
     const idx = selection.lineOrder.indexOf(line);
@@ -1025,10 +844,6 @@ function renderOrtskenntnisList() {
   $('lineOff').addEventListener('click', removeSelectedLine);
   $('resetAll').addEventListener('click', resetAll);
   $('resetView').addEventListener('click', resetView);
- $('zoomIn') && $('zoomIn').addEventListener('click', () => zoomAtCenter(0.8));
- $('zoomOut') && $('zoomOut').addEventListener('click', () => zoomAtCenter(1.25));
- $('zoomReset') && $('zoomReset').addEventListener('click', () => resetView());
-
 
   
 
@@ -1165,6 +980,75 @@ function getExportPayload() {
     }
   };
 }
+
+
+// === Teilen (iOS Share Sheet) / Minimalformat =============================
+function getMinimalPayload(){
+  const n = document.getElementById('nachname') ? String(document.getElementById('nachname').value || '').trim() : '';
+  const v = document.getElementById('vorname') ? String(document.getElementById('vorname').value || '').trim() : '';
+  const d = document.getElementById('datum') ? String(document.getElementById('datum').value || '').trim() : '';
+
+  const active = {};
+  try {
+    (selection.lineOrder || []).forEach(line => {
+      if (selection.activeLines && selection.activeLines[line]) active[line] = selection.activeLines[line];
+    });
+  } catch(e) {}
+
+  return {
+    meta: { nachname: n, vorname: v, datum: d },
+    erzeugtAm: new Date().toISOString(),
+    selection: {
+      activeLines: active,
+      lineOrder: (selection.lineOrder || []).slice(),
+      overrides: selection.overrides || {}
+    }
+  };
+}
+
+function makeFileName(meta){
+  const safe = (s)=> String(s || '').replace(/[^a-zA-Z0-9\-_. ]/g,'').trim().replace(/\s+/g,'_');
+  return ('streckenkundekarte_' + safe(meta.nachname) + '_' + safe(meta.vorname) + '_' + safe(meta.datum) + '.json').replace(/__+/g,'_');
+}
+
+async function shareOrDownloadJson(){
+  const payload = getMinimalPayload();
+  const meta = payload.meta || {};
+  if (!meta.nachname || !meta.vorname || !meta.datum){
+    toast('Bitte Name, Vorname und Datum ausfüllen.');
+    return;
+  }
+
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const fileName = makeFileName(meta);
+  let file = null;
+  try { file = new File([blob], fileName, { type: 'application/json' }); } catch(e) { file = null; }
+
+  // Web Share API (nur wenn Datei-Sharing unterstützt wird)
+  try {
+    if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ title: 'Streckenkundekarte', files: [file] });
+      toast('Geteilt.');
+      return;
+    }
+  } catch(e) {
+    // Abbruch oder nicht unterstützt -> Fallback
+    console.warn(e);
+  }
+
+  // Fallback: Download
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast('Datei heruntergeladen (danach in Dateien teilen).');
+}
+
 function downloadJson(payload) {
   var meta = payload.meta || {};
   var fn = 'streckenkundekarte_' + safeFilePart(meta.nachname) + '_' + safeFilePart(meta.vorname) + '_' + safeFilePart(meta.datum) + '.json';
@@ -1227,79 +1111,10 @@ function loadStateFromFile(file) {
     } catch (e) { reject(e); }
   });
 }
-function summarizeForMail(payload) {
-  var meta = payload.meta || {};
-  var act = (payload.selection && payload.selection.activeLines) ? payload.selection.activeLines : {};
-  var keys = Object.keys(act);
-  keys.sort(function(a,b){ return Number(a)-Number(b); });
-  var lines = keys.length ? keys.map(function(k){
-    var raw = act[k];
-    var st = raw === 'kundig' ? 'kundig' : (raw === 'unkundig' ? 'auffrischung' : 'nicht kundig');
-    var missing = [];
-    try {
-      if (typeof getNeutralOverrideLabelsForLine === 'function' && svgRoot) {
-        missing = getNeutralOverrideLabelsForLine(k) || [];
-      }
-    } catch (e) {}
-    if (missing.length) {
-      return k + ': ' + st + ' (nicht vollständig; nicht kundig: ' + missing.join(', ') + ')';
-    }
-    return k + ': ' + st;
-  }).join('\n') : 'Keine Linien markiert.';
 
-  var ov = (payload.selection && payload.selection.overrides) ? payload.selection.overrides : {};
-  var ovKeys = Object.keys(ov);
-  ovKeys.sort();
-  var ovLines = ovKeys.length ? ovKeys.map(function(id){
-    var stRaw = ov[id];
-    var st = stRaw === 'kundig' ? 'kundig' : (stRaw === 'unkundig' ? 'auffrischung' : 'nicht kundig');
-    var label = '';
-    var labelRaw = '';
-    var dataCode = '';
-    var dataLines = [];
-    try {
-      if (svgRoot) {
-        var el = svgRoot.getElementById ? svgRoot.getElementById(id) : null;
-        if (!el) el = document.getElementById(id);
-        if (el) {
-          labelRaw = String(el.getAttribute('inkscape:label') || '').trim();
-          label = labelRaw;
-          if (!label) label = (typeof getLabelForEl === 'function') ? getLabelForEl(el) : (el.id || '');
-          dataCode = String(el.getAttribute('data-code') || '').trim();
-          try {
-            var attrs = el.getAttributeNames ? el.getAttributeNames() : [];
-            for (var i=0;i<attrs.length;i++) {
-              var a = attrs[i];
-              if (a.indexOf('data-line') === 0) {
-                var v = String(el.getAttribute(a) || '').trim();
-                if (v) dataLines.push(a + '=' + v);
-              }
-            }
-          } catch(e) {}
-        }
-      }
-    } catch(e) {}
-    var extra = '';
-    if (labelRaw) extra += ' inkscape:label=' + labelRaw;
-    if (dataCode) extra += (extra ? ' ' : '') + 'data-code=' + dataCode;
-    if (dataLines.length) extra += (extra ? ' ' : '') + dataLines.join(' ');
-    return '- ' + (label || id) + ' [' + id + ']: ' + st + (extra ? ' (' + extra + ')' : '');
-  }).join('\n') : 'Keine.';
 
-  return 'Streckenkundekarte gespeichert\n' +
-    'Name: ' + (meta.nachname || '') + '\n' +
-    'Vorname: ' + (meta.vorname || '') + '\n' +
-    'Datum: ' + (meta.datum || '') + '\n\n' +
-    'Markierte Linien:\n' + lines + '\n\n' +
-    'Punkt-Overrides (manuell):\n' + ovLines + '\n\n' +
-    'Hinweis: Für vollständige Details bitte die JSON-Datei mitsenden.';
-}
-function openMail(payload) {
-  var meta = payload.meta || {};
-  var subj = ('Streckenkundekarte gespeichert - ' + (meta.nachname || '') + ' ' + (meta.vorname || '') + ' - ' + (meta.datum || '')).trim();
-  var body = summarizeForMail(payload);
-  window.location.href = 'mailto:?subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(body);
-}
+
+
 
 window.addEventListener('load', function(){
   try {
@@ -1315,6 +1130,9 @@ window.addEventListener('load', function(){
     downloadJson(payload);
     toast('Streckenkundekarte gespeichert (Datei).');
   });
+ var bs = $('shareJson');
+ if (bs) bs.addEventListener('click', function(){ shareOrDownloadJson(); });
+
 
   var b2 = $('saveLocal');
   if (b2) b2.addEventListener('click', function(){
@@ -1330,16 +1148,7 @@ window.addEventListener('load', function(){
     if (applyLoadedPayload(payload)) toast('Streckenkundekarte geladen.');
     else toast('Gespeicherte Daten sind ungültig.');
   });
-
-  var b4 = $('sendMail');
-  if (b4) b4.addEventListener('click', function(){
-    var payload = getExportPayload();
-    var meta = payload.meta;
-    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Name, Vorname und Datum ausfüllen.'); return; }
-    openMail(payload);
-  });
-
-  var sf = $('stateFile');
+var sf = $('stateFile');
   if (sf) sf.addEventListener('change', function(ev){
     var f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
     if (!f) return;
@@ -1406,12 +1215,10 @@ rebuildRouteList();
 
           view.base = getInitialViewBox(svgRoot);
           setViewBox({ ...view.base });
- zoomAtCenter(0.65);
           rebuildRouteList();
           enablePointClickCycle();
           enablePanHandlers();
           enableWheelZoom();
- enableTouchGestures();
           applySelection();
           renderActiveLines();
 
