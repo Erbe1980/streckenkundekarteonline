@@ -184,7 +184,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:13 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:23 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
@@ -204,7 +204,7 @@ header{ padding: 10px 12px; }
             <button type="button" class="btn iconBtn btnBrowser" id="saveBrowser" title="Speichern (Browser)" aria-label="Speichern (Browser)"><span class="btnTxt">Speichern</span></button>
             <button type="button" class="btn iconBtn btnBrowser" id="loadBrowser" title="Laden (Browser)" aria-label="Laden (Browser)"><span class="btnTxt">Laden</span></button>
           
-    </div>
+</div>
         </div>
 </div>
     </div>
@@ -229,6 +229,27 @@ header{ padding: 10px 12px; }
     <div class="row">
       <label>Auswahl</label>
       <div id="selectedRoute" class="hint"></div>
+  <div class="row" style="margin-top:8px; margin-bottom:0;">
+    <label>Ansicht</label>
+    <div class="btns">
+      <button type="button" class="btn" id="jumpToLine">Zur Strecke springen</button>
+      <button type="button" class="btn" id="jumpFit">Fit</button>
+    </div>
+    <div class="hint" style="margin-top:6px;">
+      <label style="display:flex; gap:8px; align-items:center; margin:0;">
+        <input id="autoJump" type="checkbox" checked style="width:auto;"> Beim Auswählen springen
+      </label>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <label style="margin:0; min-width:64px;">Zoom</label>
+      <select id="jumpZoom" style="flex:1; background:#0f1730; color:var(--text); border:1px solid var(--line); padding:8px; border-radius:8px;">
+        <option value="1.0">100%</option>
+        <option value="1.3" selected>130%</option>
+        <option value="1.6">160%</option>
+        <option value="2.0">200%</option>
+      </select>
+    </div>
+  </div>
       <input type="hidden" id="lineSelect" value="" />
   <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
 
@@ -931,7 +952,178 @@ function renderOrtskenntnisList() {
     view.base = getInitialViewBox(svgRoot);
     setViewBox({ ...view.base });
 
-    rebuildRouteList();
+    
+
+// === Datei/Browser Buttons + Sprung/Zoom ==================================
+function ensureButtonBindings(){
+  // Datei: Speichern/Laden/Teilen
+  var bFileSave = $('saveJson');
+  if (bFileSave && !bFileSave.dataset.bound){
+    bFileSave.dataset.bound = '1';
+    bFileSave.addEventListener('click', function(ev){
+      ev.preventDefault();
+      var payload = getExportPayload();
+      var meta = payload.meta || {};
+      if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
+      downloadJson(payload);
+      toast('Datei gespeichert.');
+    });
+  }
+
+  var bFileLoad = $('loadJson');
+  var sf = $('stateFile');
+  if (bFileLoad && sf && !bFileLoad.dataset.bound){
+    bFileLoad.dataset.bound = '1';
+    bFileLoad.addEventListener('click', function(ev){
+      ev.preventDefault();
+      try{ sf.value=''; }catch(e){}
+      sf.click();
+    });
+  }
+
+  var bShare = $('shareJson');
+  if (bShare && !bShare.dataset.bound){
+    bShare.dataset.bound = '1';
+    bShare.addEventListener('click', function(ev){
+      ev.preventDefault();
+      shareOrDownloadJson();
+    });
+  }
+
+  // Browser: Speichern/Laden
+  var bBS = $('saveBrowser');
+  if (bBS && !bBS.dataset.bound){
+    bBS.dataset.bound = '1';
+    bBS.addEventListener('click', function(ev){
+      ev.preventDefault();
+      var payload = getExportPayload();
+      var meta = payload.meta || {};
+      if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
+      saveToBrowser(payload);
+      toast('Im Browser gespeichert.');
+    });
+  }
+
+  var bBL = $('loadBrowser');
+  if (bBL && !bBL.dataset.bound){
+    bBL.dataset.bound = '1';
+    bBL.addEventListener('click', function(ev){
+      ev.preventDefault();
+      var payload = loadFromBrowser();
+      if (!payload) { toast('Keine Daten im Browser gespeichert.'); return; }
+      if (applyLoadedPayload(payload)) toast('Aus Browser geladen.');
+      else toast('Gespeicherte Daten sind ungültig.');
+    });
+  }
+}
+
+function unionBBox(a, b){
+  if (!a) return b;
+  if (!b) return a;
+  const x1 = Math.min(a.x, b.x);
+  const y1 = Math.min(a.y, b.y);
+  const x2 = Math.max(a.x + a.width,  b.x + b.width);
+  const y2 = Math.max(a.y + a.height, b.y + b.height);
+  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+}
+
+function getLineBBox(line){
+  if (!svgRoot) return null;
+  const ln = String(line || '').trim();
+  if (!ln) return null;
+  let bb = null;
+  try{
+    svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(el => {
+      if (!isPoint(el)) return;
+      if (!matchesAnyLine(el, ln)) return;
+      try{
+        const b = el.getBBox();
+        if (b && isFinite(b.width) && b.width > 0) bb = unionBBox(bb, b);
+      }catch(e){}
+    });
+  }catch(e){}
+  return bb;
+}
+
+function zoomToLine(line, zoomMul){
+  if (!svgRoot || !view.base) return;
+  const bb = getLineBBox(line);
+  if (!bb) { toast('Keine Punkte für diese Strecke gefunden.'); return; }
+
+  const pad = Math.max(bb.width, bb.height) * 0.20;
+  let x = bb.x - pad;
+  let y = bb.y - pad;
+  let w = bb.width  + 2*pad;
+  let h = bb.height + 2*pad;
+
+  // Zoom-Multiplikator: >1 = näher ran
+  const zm = Number(zoomMul || 1.0);
+  if (isFinite(zm) && zm > 0){
+    const cx = x + w/2;
+    const cy = y + h/2;
+    w = w / zm;
+    h = h / zm;
+    x = cx - w/2;
+    y = cy - h/2;
+  }
+
+  setViewBox({ x: x, y: y, w: w, h: h });
+}
+
+function wireJumpUi(){
+  const btnJump = $('jumpToLine');
+  const btnFit  = $('jumpFit');
+  const chkAuto = $('autoJump');
+  const selZoom = $('jumpZoom');
+
+  const currentLine = () => $('lineSelect') ? $('lineSelect').value : '';
+  const zoomMul = () => selZoom ? Number(selZoom.value || '1.0') : 1.0;
+
+  if (btnJump && !btnJump.dataset.bound){
+    btnJump.dataset.bound = '1';
+    btnJump.addEventListener('click', () => {
+      const ln = currentLine();
+      if (!ln) { toast('Bitte zuerst eine Strecke wählen.'); return; }
+      zoomToLine(ln, zoomMul());
+    });
+  }
+  if (btnFit && !btnFit.dataset.bound){
+    btnFit.dataset.bound = '1';
+    btnFit.addEventListener('click', () => {
+      const ln = currentLine();
+      if (!ln) { resetView(); return; }
+      zoomToLine(ln, 1.0);
+    });
+  }
+
+  // Hook in die bestehende Auswahlfunktion: nach setSelectedLineUi()
+  if (chkAuto){
+    window.__autoJumpEnabled = () => !!chkAuto.checked;
+  } else {
+    window.__autoJumpEnabled = () => false;
+  }
+  window.__autoJumpZoom = () => zoomMul();
+}
+
+// Patch: beim Anklicken in der Streckenliste automatisch springen (wenn aktiv)
+(function(){
+  const orig = window.setSelectedLineUi;
+  if (typeof orig === 'function' && !window.__patchedSetSelectedLineUi){
+    window.__patchedSetSelectedLineUi = true;
+    window.setSelectedLineUi = function(line){
+      orig(line);
+      try{
+        const ok = window.__autoJumpEnabled ? window.__autoJumpEnabled() : false;
+        if (ok && line){
+          const zm = window.__autoJumpZoom ? window.__autoJumpZoom() : 1.3;
+          // kleiner Tick, damit UI-Update zuerst kommt
+          setTimeout(() => zoomToLine(line, zm), 0);
+        }
+      }catch(e){}
+    };
+  }
+})();
+rebuildRouteList();
     enablePointClickCycle();
     enablePanHandlers();
     enableWheelZoom();
@@ -1180,45 +1372,37 @@ function makeFileName(meta){
 }
 
 async function shareOrDownloadJson(){
-  const payload = getExportPayload();
+  const payload = getMinimalPayload();
   const meta = payload.meta || {};
   if (!meta.nachname || !meta.vorname || !meta.datum){
-    toast('Bitte Vorname, Name und Datum ausfüllen.');
+    toast('Bitte Name, Vorname und Datum ausfüllen.');
     return;
   }
 
   const json = JSON.stringify(payload, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
-  const fileName = 'streckenkundekarte_' + safeFilePart(meta.nachname) + '_' + safeFilePart(meta.vorname) + '_' + safeFilePart(meta.datum) + '.json';
-
+  const fileName = makeFileName(meta);
   let file = null;
   try { file = new File([blob], fileName, { type: 'application/json' }); } catch(e) { file = null; }
 
-  // Web Share API (Teams/Mail/Files etc. via Share Sheet)
   try {
     if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ title: 'Streckenkundekarte', files: [file] });
-      toast('Teilen geöffnet.');
+      toast('Geteilt.');
       return;
     }
-  } catch(e) {
-    // AbortError = Nutzer abgebrochen
-    console.warn(e);
-  }
+  } catch(e) { console.warn(e); }
 
-  // Fallback: Download
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = fileName;
-  a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
   toast('Datei heruntergeladen (danach in Dateien teilen).');
 }
-
 
 function downloadJson(payload) {
   var meta = payload.meta || {};
@@ -1305,61 +1489,8 @@ window.addEventListener('load', function(){
     var d = $('datum');
     if (d && !d.value) d.value = todayISO();
 
-  // Personendaten merken
-  try{ restoreMeta(); }catch(e){}
-  ['vorname','nachname','datum'].forEach(function(id){
-    var el = $(id);
-    if (!el) return;
-    el.addEventListener('input', function(){ try{ persistMeta(); }catch(e){} });
-    el.addEventListener('change', function(){ try{ persistMeta(); }catch(e){} });
-  });
-
-
-  // Buttons: Datei
-  var bFileSave = $('saveJson');
-  if (bFileSave) bFileSave.addEventListener('click', function(ev){
-    ev.preventDefault();
-    var payload = getExportPayload();
-    var meta = payload.meta || {};
-    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
-    downloadJson(payload);
-    toast('Datei gespeichert.');
-  });
-
-  var bFileLoad = $('loadJson');
-  var sf = $('stateFile');
-  if (bFileLoad && sf) bFileLoad.addEventListener('click', function(ev){
-    ev.preventDefault();
-    try{ sf.value = ''; }catch(e){}
-    sf.click();
-  });
-
-  var bShare = $('shareJson');
-  if (bShare) bShare.addEventListener('click', function(ev){
-    ev.preventDefault();
-    shareOrDownloadJson();
-  });
-
-  // Buttons: Browser
-  var bBS = $('saveBrowser');
-  if (bBS) bBS.addEventListener('click', function(ev){
-    ev.preventDefault();
-    var payload = getExportPayload();
-    var meta = payload.meta || {};
-    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
-    saveToBrowser(payload);
-    toast('Im Browser gespeichert.');
-  });
-
-  var bBL = $('loadBrowser');
-  if (bBL) bBL.addEventListener('click', function(ev){
-    ev.preventDefault();
-    var payload = loadFromBrowser();
-    if (!payload) { toast('Keine Daten im Browser gespeichert.'); return; }
-    if (applyLoadedPayload(payload)) toast('Aus Browser geladen.');
-    else toast('Gespeicherte Daten sind ungültig.');
-  });
-
+  try{ ensureButtonBindings(); }catch(e){}
+  try{ wireJumpUi(); }catch(e){}
 
  
   } catch (e) {}
