@@ -184,24 +184,27 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:01 UTC</div>
-      <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:13 UTC</div>
+      <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
 <div class="actionsBar"> 
         <div class="actionGroup">
           <div class="groupTitle">Datei</div>
           <div class="groupBtns">
-            <button type=\"button\" class="btn iconBtn btnSave" id="saveJson" title="Speichern (Datei)" aria-label="Speichern (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14l2 2v16H3V3h2zm2 2v6h10V5H7zm0 10v4h10v-4H7z"/></svg><span class="btnTxt">Speichern</span></button>
-            <button type=\"button\" class="btn iconBtn btnLoad" id="loadJson" title="Laden (Datei)" aria-label="Laden (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H9v5H5v13h16V3zm-8 7V5h6v14H7V10h4zm1.5 3V9h-1v4H9.5L12 15.5 14.5 13H12.5z"/></svg><span class="btnTxt">Laden</span></button>
-            <button type=\"button\" class="btn iconBtn btnShare" id="shareJson" title="Teilen…" aria-label="Teilen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 16a3 3 0 0 0-2.4 1.2L8.9 13.7a3.2 3.2 0 0 0 0-3.4l6.7-3.5A3 3 0 1 0 15 5a3 3 0 0 0 .1.7L8.4 9.2a3 3 0 1 0 0 5.6l6.7 3.5A3 3 0 1 0 18 16z"/></svg><span class="btnTxt">Teilen</span></button>
+            <button type="button" class="btn iconBtn btnSave" id="saveJson" title="Speichern (Datei)" aria-label="Speichern (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14l2 2v16H3V3h2zm2 2v6h10V5H7zm0 10v4h10v-4H7z"/></svg><span class="btnTxt">Speichern</span></button>
+            <button type="button" class="btn iconBtn btnLoad" id="loadJson" title="Laden (Datei)" aria-label="Laden (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H9v5H5v13h16V3zm-8 7V5h6v14H7V10h4zm1.5 3V9h-1v4H9.5L12 15.5 14.5 13H12.5z"/></svg><span class="btnTxt">Laden</span></button>
+            <button type="button" class="btn iconBtn btnShare" id="shareJson" title="Teilen…" aria-label="Teilen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 16a3 3 0 0 0-2.4 1.2L8.9 13.7a3.2 3.2 0 0 0 0-3.4l6.7-3.5A3 3 0 1 0 15 5a3 3 0 0 0 .1.7L8.4 9.2a3 3 0 1 0 0 5.6l6.7 3.5A3 3 0 1 0 18 16z"/></svg><span class="btnTxt">Teilen</span></button>
           </div>
         </div>
 
         <div class="actionGroup">
           <div class="groupTitle">Browser</div>
           <div class="groupBtns">
-</div>
+            <button type="button" class="btn iconBtn btnBrowser" id="saveBrowser" title="Speichern (Browser)" aria-label="Speichern (Browser)"><span class="btnTxt">Speichern</span></button>
+            <button type="button" class="btn iconBtn btnBrowser" id="loadBrowser" title="Laden (Browser)" aria-label="Laden (Browser)"><span class="btnTxt">Laden</span></button>
+          
+    </div>
         </div>
 </div>
     </div>
@@ -230,14 +233,14 @@ header{ padding: 10px 12px; }
   <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
 
       <div class="btns" style="margin-top:8px;">
-        <button type=\"button\" class="btn primary" id="lineBlue">Kundig (blau)</button>
-        <button type=\"button\" class="btn danger" id="lineRed">Auffrischung (rot)</button>
-        <button type=\"button\" class="btn full" id="lineOff">Linie entfernen</button>
+        <button type="button" class="btn primary" id="lineBlue">Kundig (blau)</button>
+        <button type="button" class="btn danger" id="lineRed">Auffrischung (rot)</button>
+        <button type="button" class="btn full" id="lineOff">Linie entfernen</button>
       </div>
 
       <div class="btns" style="margin-top:8px;">
-        <button type=\"button\" class="btn" id="resetView">Ansicht zurücksetzen</button>
-        <button type=\"button\" class="btn" id="resetAll">Alles zurücksetzen</button>
+        <button type="button" class="btn" id="resetView">Ansicht zurücksetzen</button>
+        <button type="button" class="btn" id="resetAll">Alles zurücksetzen</button>
       </div>
 
       <div class="row" style="margin-top:10px; margin-bottom:0;">
@@ -1177,37 +1180,45 @@ function makeFileName(meta){
 }
 
 async function shareOrDownloadJson(){
-  const payload = getMinimalPayload();
+  const payload = getExportPayload();
   const meta = payload.meta || {};
   if (!meta.nachname || !meta.vorname || !meta.datum){
-    toast('Bitte Name, Vorname und Datum ausfüllen.');
+    toast('Bitte Vorname, Name und Datum ausfüllen.');
     return;
   }
 
   const json = JSON.stringify(payload, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
-  const fileName = makeFileName(meta);
+  const fileName = 'streckenkundekarte_' + safeFilePart(meta.nachname) + '_' + safeFilePart(meta.vorname) + '_' + safeFilePart(meta.datum) + '.json';
+
   let file = null;
   try { file = new File([blob], fileName, { type: 'application/json' }); } catch(e) { file = null; }
 
+  // Web Share API (Teams/Mail/Files etc. via Share Sheet)
   try {
     if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ title: 'Streckenkundekarte', files: [file] });
-      toast('Geteilt.');
+      toast('Teilen geöffnet.');
       return;
     }
-  } catch(e) { console.warn(e); }
+  } catch(e) {
+    // AbortError = Nutzer abgebrochen
+    console.warn(e);
+  }
 
+  // Fallback: Download
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = fileName;
+  a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
   toast('Datei heruntergeladen (danach in Dateien teilen).');
 }
+
 
 function downloadJson(payload) {
   var meta = payload.meta || {};
@@ -1293,6 +1304,62 @@ window.addEventListener('load', function(){
   try {
     var d = $('datum');
     if (d && !d.value) d.value = todayISO();
+
+  // Personendaten merken
+  try{ restoreMeta(); }catch(e){}
+  ['vorname','nachname','datum'].forEach(function(id){
+    var el = $(id);
+    if (!el) return;
+    el.addEventListener('input', function(){ try{ persistMeta(); }catch(e){} });
+    el.addEventListener('change', function(){ try{ persistMeta(); }catch(e){} });
+  });
+
+
+  // Buttons: Datei
+  var bFileSave = $('saveJson');
+  if (bFileSave) bFileSave.addEventListener('click', function(ev){
+    ev.preventDefault();
+    var payload = getExportPayload();
+    var meta = payload.meta || {};
+    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
+    downloadJson(payload);
+    toast('Datei gespeichert.');
+  });
+
+  var bFileLoad = $('loadJson');
+  var sf = $('stateFile');
+  if (bFileLoad && sf) bFileLoad.addEventListener('click', function(ev){
+    ev.preventDefault();
+    try{ sf.value = ''; }catch(e){}
+    sf.click();
+  });
+
+  var bShare = $('shareJson');
+  if (bShare) bShare.addEventListener('click', function(ev){
+    ev.preventDefault();
+    shareOrDownloadJson();
+  });
+
+  // Buttons: Browser
+  var bBS = $('saveBrowser');
+  if (bBS) bBS.addEventListener('click', function(ev){
+    ev.preventDefault();
+    var payload = getExportPayload();
+    var meta = payload.meta || {};
+    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
+    saveToBrowser(payload);
+    toast('Im Browser gespeichert.');
+  });
+
+  var bBL = $('loadBrowser');
+  if (bBL) bBL.addEventListener('click', function(ev){
+    ev.preventDefault();
+    var payload = loadFromBrowser();
+    if (!payload) { toast('Keine Daten im Browser gespeichert.'); return; }
+    if (applyLoadedPayload(payload)) toast('Aus Browser geladen.');
+    else toast('Gespeicherte Daten sind ungültig.');
+  });
+
 
  
   } catch (e) {}
