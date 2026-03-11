@@ -128,16 +128,11 @@ header { flex: 0 0 auto; }
 /* Force: Build/Status immer sichtbar */
 #buildId, #autoloadStatus { display:block !important; }
 
-
-/* === iOS / Touch: Karte separat zoomen & verschieben (nicht die ganze Seite) === */
-.mapWrap, #mapHost, #svgObj, #mapHost svg {
-  touch-action: none;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
+/* Punkte auf Touch besser antippbar machen */
+#mapHost svg [data-typ],
+#mapHost svg [data-type]{
+  pointer-events: all;
 }
-.mapWrap { overscroll-behavior: contain; }
-#mapHost { overflow: hidden; }
 
 </style>
 
@@ -157,7 +152,7 @@ header { flex: 0 0 auto; }
 
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-10 17:36 UTC</div>
+  <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 06:08 UTC</div>
   <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
 </header>
 
@@ -252,6 +247,19 @@ header { flex: 0 0 auto; }
   window.addEventListener('error', (ev) => { try{ setStatus('JS-Fehler: ' + (ev && ev.message ? ev.message : ev)); }catch(e){} });
   window.addEventListener('unhandledrejection', (ev) => { try{ setStatus('Promise-Fehler: ' + (ev && ev.reason ? (ev.reason.message || ev.reason) : ev)); }catch(e){} });
   setStatus('JS läuft');
+// BUILD_RUNTIME_LOCAL: Cache-Check (zeigt lokale Zeit)
+(function(){
+  try{
+    const el = document.getElementById('buildId');
+    if(!el) return;
+    const d = new Date();
+    const pad = (n)=> String(n).padStart(2,'0');
+    el.textContent = 'Build: ' +
+      d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' +
+      pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + ' (lokal)';
+  }catch(e){}
+})();
+
 })();
 
 
@@ -617,31 +625,49 @@ function renderOrtskenntnisList() {
       if (el.dataset.boundClick === '1') return;
       el.dataset.boundClick = '1';
       el.style.cursor = 'pointer';
-      el.addEventListener('click', (ev) => {
- const nowTs = Date.now();
- if (view && view.lastGestureTs && (nowTs - view.lastGestureTs) < 250) { return; }
-        const id = el.id;
-        if (!id) return;
+      // Tap-Handling (iOS-sicher): pointerdown/up statt click
+  el.addEventListener('pointerdown', (ev) => {
+    try{
+      el.dataset.tapX = String(ev.clientX);
+      el.dataset.tapY = String(ev.clientY);
+      el.dataset.tapT = String(Date.now());
+    }catch(e){}
+  }, { passive:true });
 
-        const baseStatus = getLineStatusForElement(el);
-        const cur = selection.overrides[id] || '';
+  el.addEventListener('pointerup', (ev) => {
+    const nowTs = Date.now();
+    if (view && view.lastGestureTs && (nowTs - view.lastGestureTs) < 250) return;
 
-        let next = 'neutral';
-        if (cur === '') next = 'neutral';
-        else if (cur === 'neutral') next = 'kundig';
-        else if (cur === 'kundig') next = 'unkundig';
-        else if (cur === 'unkundig') next = '';
+    const sx = Number(el.dataset.tapX || ev.clientX);
+    const sy = Number(el.dataset.tapY || ev.clientY);
+    const dx = Math.abs(ev.clientX - sx);
+    const dy = Math.abs(ev.clientY - sy);
+    if (dx > 10 || dy > 10) return; // war Ziehen (Pan)
 
-        if (next === '') delete selection.overrides[id];
-        else selection.overrides[id] = next;
+    ev.preventDefault();
+    ev.stopPropagation();
 
-        applySelection();
-        renderActiveLines();
+    const id = el.id;
+    if (!id) return;
 
-        const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
-        toast(`${id}: ${msg}`);
-        ev.stopPropagation();
-      });
+    const baseStatus = getLineStatusForElement(el);
+    const cur = selection.overrides[id] || '';
+    let next = 'neutral';
+    if (cur === '') next = 'neutral';
+    else if (cur === 'neutral') next = 'kundig';
+    else if (cur === 'kundig') next = 'unkundig';
+    else if (cur === 'unkundig') next = '';
+
+    if (next === '') delete selection.overrides[id];
+    else selection.overrides[id] = next;
+
+    applySelection();
+    renderActiveLines();
+
+    const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
+    toast(`${id}: ${msg}`);
+  }, { passive:false });
+
     });
   }
 
@@ -701,150 +727,103 @@ function renderOrtskenntnisList() {
   }
 
   function enablePanHandlers() {
-  if (!svgRoot) return;
+    svgRoot.addEventListener('pointerdown', (evt) => {
+      const panAllowed = evt.altKey || evt.button === 1;
+      if (!panAllowed) return;
+      evt.preventDefault();
+      view.panning = true;
+      view.panStart = { x: evt.clientX, y: evt.clientY };
+      view.panViewStart = { ...view.cur };
+      try { svgRoot.setPointerCapture(evt.pointerId); } catch {}
+    });
 
-  const pointers = new Map(); // pointerId -> {x,y}
-  let pinchStart = null;      // {dist, vb:{...}}
-  let panStart = null;        // {x,y, vb:{...}}
-
-  function getDist(a, b){
-    const dx = a.x - b.x, dy = a.y - b.y;
-    return Math.sqrt(dx*dx + dy*dy);
-  }
-  function getMid(a,b){
-    return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 };
-  }
-  function clientToSvg(client){
-    const pt = svgRoot.createSVGPoint();
-    pt.x = client.x; pt.y = client.y;
-    const ctm = svgRoot.getScreenCTM();
-    if (!ctm) return {x:0,y:0};
-    const sp = pt.matrixTransform(ctm.inverse());
-    return { x: sp.x, y: sp.y };
-  }
-
-  // iOS: Standard-Gesten im Kartenbereich unterbinden
-  try { svgRoot.style.touchAction = 'none'; } catch(e) {}
-  svgRoot.addEventListener('touchstart', (e)=>{ e.preventDefault(); }, {passive:false});
-  svgRoot.addEventListener('touchmove',  (e)=>{ e.preventDefault(); }, {passive:false});
-
-  svgRoot.addEventListener('pointerdown', (evt) => {
-    const isMouse = (evt.pointerType === 'mouse');
-    const panAllowedMouse = evt.altKey || evt.button === 1;
-    if (isMouse && !panAllowedMouse) return;
-
-    evt.preventDefault();
-    try { svgRoot.setPointerCapture(evt.pointerId); } catch {}
-    pointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
-
-    if (!view.cur || !view.base) return;
-
-    if (pointers.size === 1) {
-      // Start 1-Finger-Pan (Touch) oder Mouse-Pan (mit Alt/Mitteltaste)
-      panStart = { x: evt.clientX, y: evt.clientY, vb: { ...view.cur } };
-      pinchStart = null;
-    } else if (pointers.size === 2) {
-      // Start Pinch
-      const pts = Array.from(pointers.values());
-      const d = getDist(pts[0], pts[1]);
-      pinchStart = { dist: d, vb: { ...view.cur } };
-      panStart = null;
-    }
-  }, {passive:false});
-
-  svgRoot.addEventListener('pointermove', (evt) => {
-    if (!pointers.has(evt.pointerId)) return;
-    evt.preventDefault();
-    pointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
-    if (!view.cur || !view.base) return;
-
-    if (pointers.size === 1 && panStart) {
-      const p = pointers.values().next().value;
-      const dx = p.x - panStart.x;
-      const dy = p.y - panStart.y;
-
+    svgRoot.addEventListener('pointermove', (evt) => {
+      if (!view.panning) return;
+      evt.preventDefault();
+      const dx = evt.clientX - view.panStart.x;
+      const dy = evt.clientY - view.panStart.y;
       const rect = svgRoot.getBoundingClientRect();
-      const sx = panStart.vb.w / rect.width;
-      const sy = panStart.vb.h / rect.height;
-
+      const sx = view.panViewStart.w / rect.width;
+      const sy = view.panViewStart.h / rect.height;
       setViewBox({
-        x: panStart.vb.x - dx * sx,
-        y: panStart.vb.y - dy * sy,
-        w: panStart.vb.w,
-        h: panStart.vb.h
+        x: view.panViewStart.x - dx * sx,
+        y: view.panViewStart.y - dy * sy,
+        w: view.panViewStart.w,
+        h: view.panViewStart.h
       });
-      view.lastGestureTs = Date.now();
+    });
+
+    function endPan(evt) {
+      if (!view.panning) return;
+      view.panning = false;
+      try { svgRoot.releasePointerCapture(evt.pointerId); } catch {}
     }
 
-    if (pointers.size === 2 && pinchStart) {
-      const pts = Array.from(pointers.values());
-      const d = getDist(pts[0], pts[1]);
-      if (d <= 0) return;
-
-      const scale = pinchStart.dist / d; // Finger auseinander => d grösser => zoom in
-      const midClient = getMid(pts[0], pts[1]);
-      const midSvg = clientToSvg(midClient);
-
-      const vb0 = pinchStart.vb;
-      const nw = vb0.w * scale;
-      const nh = vb0.h * scale;
-
-      const minW = view.base.w * 0.02;
-      const maxW = view.base.w * 20;
-      if (nw < minW || nw > maxW) return;
-
-      const nx = midSvg.x - (midSvg.x - vb0.x) * (nw / vb0.w);
-      const ny = midSvg.y - (midSvg.y - vb0.y) * (nh / vb0.h);
-
-      setViewBox({ x: nx, y: ny, w: nw, h: nh });
-      view.lastGestureTs = Date.now();
-    }
-  }, {passive:false});
-
-  function endPointer(evt){
-    if (pointers.has(evt.pointerId)) pointers.delete(evt.pointerId);
-    try { svgRoot.releasePointerCapture(evt.pointerId); } catch {}
-
-    if (pointers.size < 2) pinchStart = null;
-    if (pointers.size === 0) panStart = null;
-
-    // Wenn nach Pinch ein Pointer übrig bleibt: neuen Pan-Start setzen
-    if (pointers.size === 1 && view.cur) {
-      const p = pointers.values().next().value;
-      panStart = { x: p.x, y: p.y, vb: { ...view.cur } };
-    }
+    svgRoot.addEventListener('pointerup', endPan);
+    svgRoot.addEventListener('pointercancel', endPan);
   }
-
-  svgRoot.addEventListener('pointerup', endPointer, {passive:false});
-  svgRoot.addEventListener('pointercancel', endPointer, {passive:false});
-  svgRoot.addEventListener('pointerleave', endPointer, {passive:false});
-}
 
   function resetView() {
     if (!view.base) return;
     setViewBox({ ...view.base });
+ // Startansicht: MU auf 200%
+ focusOnDataCode('MU', 2);
     toast('Ansicht zurückgesetzt.');
   }
 
-  
-function focusOnDataCode(code, zoomFactor){
+  function focusOnDataCode(code, zoomFactor){
   try {
     if (!svgRoot || !view.base) return false;
     const target = String(code || '').trim().toUpperCase();
     if (!target) return false;
 
-    // Safari: Attributselektor case-insensitive nicht überall zuverlässig -> manuell.
     let el = null;
-    const nodes = svgRoot.querySelectorAll('[data-code]');
-    for (let i = 0; i < nodes.length; i++){
-      const v = String(nodes[i].getAttribute('data-code') || '').trim().toUpperCase();
-      if (v === target) { el = nodes[i]; break; }
-    }
-    if (!el) return false;
 
+    // (a) data-code
+    const byCode = svgRoot.querySelectorAll('[data-code]');
+    for (let i = 0; i < byCode.length; i++){
+      const v = String(byCode[i].getAttribute('data-code') || '').trim().toUpperCase();
+      if (v === target) { el = byCode[i]; break; }
+    }
+
+    // (b) id
+    if (!el) {
+      try {
+        const byId = svgRoot.getElementById ? svgRoot.getElementById(target) : null;
+        if (byId) el = byId;
+      } catch(e) {}
+    }
+
+    // (c) inkscape:label (exakt oder beginnt mit "MU ")
+    if (!el) {
+      const all = svgRoot.querySelectorAll('*');
+      for (let i = 0; i < all.length; i++){
+        const lbl = String(all[i].getAttribute('inkscape:label') || '').trim().toUpperCase();
+        if (lbl === target || lbl.startsWith(target + ' ')) { el = all[i]; break; }
+      }
+    }
+
+    if (!el) {
+      const n = byCode ? byCode.length : 0;
+      console.warn('focusOnDataCode: nicht gefunden', target, 'data-code count', n);
+      try { toast(target + ' nicht gefunden'); } catch(e) {}
+      return false;
+    }
+
+    // BBox bestimmen (Fallback: erstes sichtbares Kind)
     let bb = null;
     try { bb = el.getBBox(); } catch(e) { bb = null; }
-    if (!bb) return false;
+    if ((!bb || (!bb.width && !bb.height)) && el.querySelector) {
+      const child = el.querySelector('circle, ellipse, rect, path, polygon, polyline, use, text, g');
+      if (child) {
+        try { bb = child.getBBox(); el = child; } catch(e) {}
+      }
+    }
+
+    if (!bb) {
+      console.warn('focusOnDataCode: gefunden aber kein BBox', target);
+      return false;
+    }
 
     const cx = bb.x + bb.width / 2;
     const cy = bb.y + bb.height / 2;
@@ -1354,8 +1333,6 @@ rebuildRouteList();
 
           view.base = getInitialViewBox(svgRoot);
           setViewBox({ ...view.base });
- // Startansicht: MU auf 200%
- focusOnDataCode('MU', 2);
           rebuildRouteList();
           enablePointClickCycle();
           enablePanHandlers();
