@@ -128,12 +128,6 @@ header { flex: 0 0 auto; }
 /* Force: Build/Status immer sichtbar */
 #buildId, #autoloadStatus { display:block !important; }
 
-/* Punkte auf Touch besser antippbar machen */
-#mapHost svg [data-typ],
-#mapHost svg [data-type]{
-  pointer-events: all;
-}
-
 </style>
 
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -152,7 +146,7 @@ header { flex: 0 0 auto; }
 
 <header>
   <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 06:08 UTC</div>
+  <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-10 17:36 UTC</div>
   <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
 </header>
 
@@ -189,6 +183,13 @@ header { flex: 0 0 auto; }
     <div class="row">
       <label>Auswahl</label>
       <div id="selectedRoute" class="hint"></div>
+  <div class="btns" style="margin-top:8px;">
+    <button class="btn full" id="jumpLine">Zur Strecke springen</button>
+  </div>
+  <label style="display:flex; gap:8px; align-items:center; margin-top:10px;">
+    <input type="checkbox" id="autoJump" checked />
+    Beim Auswählen automatisch springen
+  </label>
       <input type="hidden" id="lineSelect" value="" />
   <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
 
@@ -247,19 +248,6 @@ header { flex: 0 0 auto; }
   window.addEventListener('error', (ev) => { try{ setStatus('JS-Fehler: ' + (ev && ev.message ? ev.message : ev)); }catch(e){} });
   window.addEventListener('unhandledrejection', (ev) => { try{ setStatus('Promise-Fehler: ' + (ev && ev.reason ? (ev.reason.message || ev.reason) : ev)); }catch(e){} });
   setStatus('JS läuft');
-// BUILD_RUNTIME_LOCAL: Cache-Check (zeigt lokale Zeit)
-(function(){
-  try{
-    const el = document.getElementById('buildId');
-    if(!el) return;
-    const d = new Date();
-    const pad = (n)=> String(n).padStart(2,'0');
-    el.textContent = 'Build: ' +
-      d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' +
-      pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + ' (lokal)';
-  }catch(e){}
-})();
-
 })();
 
 
@@ -625,49 +613,29 @@ function renderOrtskenntnisList() {
       if (el.dataset.boundClick === '1') return;
       el.dataset.boundClick = '1';
       el.style.cursor = 'pointer';
-      // Tap-Handling (iOS-sicher): pointerdown/up statt click
-  el.addEventListener('pointerdown', (ev) => {
-    try{
-      el.dataset.tapX = String(ev.clientX);
-      el.dataset.tapY = String(ev.clientY);
-      el.dataset.tapT = String(Date.now());
-    }catch(e){}
-  }, { passive:true });
+      el.addEventListener('click', (ev) => {
+        const id = el.id;
+        if (!id) return;
 
-  el.addEventListener('pointerup', (ev) => {
-    const nowTs = Date.now();
-    if (view && view.lastGestureTs && (nowTs - view.lastGestureTs) < 250) return;
+        const baseStatus = getLineStatusForElement(el);
+        const cur = selection.overrides[id] || '';
 
-    const sx = Number(el.dataset.tapX || ev.clientX);
-    const sy = Number(el.dataset.tapY || ev.clientY);
-    const dx = Math.abs(ev.clientX - sx);
-    const dy = Math.abs(ev.clientY - sy);
-    if (dx > 10 || dy > 10) return; // war Ziehen (Pan)
+        let next = 'neutral';
+        if (cur === '') next = 'neutral';
+        else if (cur === 'neutral') next = 'kundig';
+        else if (cur === 'kundig') next = 'unkundig';
+        else if (cur === 'unkundig') next = '';
 
-    ev.preventDefault();
-    ev.stopPropagation();
+        if (next === '') delete selection.overrides[id];
+        else selection.overrides[id] = next;
 
-    const id = el.id;
-    if (!id) return;
+        applySelection();
+        renderActiveLines();
 
-    const baseStatus = getLineStatusForElement(el);
-    const cur = selection.overrides[id] || '';
-    let next = 'neutral';
-    if (cur === '') next = 'neutral';
-    else if (cur === 'neutral') next = 'kundig';
-    else if (cur === 'kundig') next = 'unkundig';
-    else if (cur === 'unkundig') next = '';
-
-    if (next === '') delete selection.overrides[id];
-    else selection.overrides[id] = next;
-
-    applySelection();
-    renderActiveLines();
-
-    const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
-    toast(`${id}: ${msg}`);
-  }, { passive:false });
-
+        const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
+        toast(`${id}: ${msg}`);
+        ev.stopPropagation();
+      });
     });
   }
 
@@ -766,80 +734,121 @@ function renderOrtskenntnisList() {
   function resetView() {
     if (!view.base) return;
     setViewBox({ ...view.base });
- // Startansicht: MU auf 200%
- focusOnDataCode('MU', 2);
     toast('Ansicht zurückgesetzt.');
   }
 
-  function focusOnDataCode(code, zoomFactor){
-  try {
-    if (!svgRoot || !view.base) return false;
-    const target = String(code || '').trim().toUpperCase();
-    if (!target) return false;
+  
 
-    let el = null;
+// === Jump to line (Streckenliste -> in Karte springen) =====================
+function normStationName(s){
+  return String(s || '')
+    .replace(/\s+/g,' ')
+    .trim();
+}
 
-    // (a) data-code
-    const byCode = svgRoot.querySelectorAll('[data-code]');
-    for (let i = 0; i < byCode.length; i++){
-      const v = String(byCode[i].getAttribute('data-code') || '').trim().toUpperCase();
-      if (v === target) { el = byCode[i]; break; }
-    }
+function findByInkscapeLabel(label){
+  if (!svgRoot) return null;
+  const target = normStationName(label);
+  if (!target) return null;
 
-    // (b) id
-    if (!el) {
-      try {
-        const byId = svgRoot.getElementById ? svgRoot.getElementById(target) : null;
-        if (byId) el = byId;
-      } catch(e) {}
-    }
+  // inkscape:label kann auf unterschiedlichen Elementen sitzen (z.B. leerer Marker, dann folgt <path>)
+  const all = svgRoot.querySelectorAll('*');
+  for (let i=0;i<all.length;i++){
+    const v = String(all[i].getAttribute('inkscape:label') || '').trim();
+    if (!v) continue;
+    if (normStationName(v) === target) return all[i];
+  }
+  // fallback: case-insensitive
+  const targetU = target.toUpperCase();
+  for (let i=0;i<all.length;i++){
+    const v = String(all[i].getAttribute('inkscape:label') || '').trim();
+    if (!v) continue;
+    if (normStationName(v).toUpperCase() === targetU) return all[i];
+  }
+  return null;
+}
 
-    // (c) inkscape:label (exakt oder beginnt mit "MU ")
-    if (!el) {
-      const all = svgRoot.querySelectorAll('*');
-      for (let i = 0; i < all.length; i++){
-        const lbl = String(all[i].getAttribute('inkscape:label') || '').trim().toUpperCase();
-        if (lbl === target || lbl.startsWith(target + ' ')) { el = all[i]; break; }
-      }
-    }
-
-    if (!el) {
-      const n = byCode ? byCode.length : 0;
-      console.warn('focusOnDataCode: nicht gefunden', target, 'data-code count', n);
-      try { toast(target + ' nicht gefunden'); } catch(e) {}
-      return false;
-    }
-
-    // BBox bestimmen (Fallback: erstes sichtbares Kind)
+function focusElementSmart(el, zoomFactor){
+  try{
+    if (!el || !svgRoot || !view.base) return false;
     let bb = null;
     try { bb = el.getBBox(); } catch(e) { bb = null; }
-    if ((!bb || (!bb.width && !bb.height)) && el.querySelector) {
-      const child = el.querySelector('circle, ellipse, rect, path, polygon, polyline, use, text, g');
-      if (child) {
+
+    // Wenn keine Geometrie: next sibling (häufig der sichtbare <path>)
+    if ((!bb || (!bb.width && !bb.height)) && el.nextElementSibling){
+      try { bb = el.nextElementSibling.getBBox(); el = el.nextElementSibling; } catch(e) {}
+    }
+
+    // Wenn immer noch nichts: erstes sichtbares Kind
+    if ((!bb || (!bb.width && !bb.height)) && el.querySelector){
+      const child = el.querySelector('path,circle,ellipse,rect,polygon,polyline,use,text,g');
+      if (child){
         try { bb = child.getBBox(); el = child; } catch(e) {}
       }
     }
 
-    if (!bb) {
-      console.warn('focusOnDataCode: gefunden aber kein BBox', target);
-      return false;
+    // Wenn immer noch nichts: Parent versuchen
+    if ((!bb || (!bb.width && !bb.height)) && el.parentElement){
+      try { bb = el.parentElement.getBBox(); el = el.parentElement; } catch(e) {}
     }
 
-    const cx = bb.x + bb.width / 2;
-    const cy = bb.y + bb.height / 2;
+    if (!bb) return false;
 
+    const cx = bb.x + bb.width/2;
+    const cy = bb.y + bb.height/2;
     const z = (zoomFactor && zoomFactor > 0) ? zoomFactor : 2;
     const w = view.base.w / z;
     const h = view.base.h / z;
-
-    setViewBox({ x: cx - w/2, y: cy - h/2, w: w, h: h });
+    setViewBox({ x: cx - w/2, y: cy - h/2, w, h });
     return true;
-  } catch(e) {
-    console.warn('focusOnDataCode failed', e);
+  }catch(e){
+    console.warn('focusElementSmart failed', e);
     return false;
   }
 }
 
+function focusOnInkscapeLabel(label, zoomFactor){
+  const el = findByInkscapeLabel(label);
+  if (!el) return false;
+  return focusElementSmart(el, zoomFactor);
+}
+
+function jumpToLine(line){
+  const ln = normalizeLine(line);
+  if (!ln || !indexData || !indexData.routes) return false;
+  const route = String(indexData.routes[ln] || '').trim();
+  if (!route) return false;
+
+  // Annahme: 2. Station der Beschreibung ist in der Regel mittig (wie gewünscht). Wenn zu kurz: fallback.
+  const parts = route.split(' - ').map(normStationName).filter(Boolean);
+  const candidates = [];
+  if (parts.length >= 2) candidates.push(parts[1]);
+  if (parts.length >= 3) candidates.push(parts[2]);
+  if (parts.length >= 1) candidates.push(parts[0]);
+
+  for (let i=0;i<candidates.length;i++){
+    if (focusOnInkscapeLabel(candidates[i], 2.0)){
+      toast('Sprung: ' + candidates[i]);
+      return true;
+    }
+  }
+
+  // Fallback: nimm irgendeinen Punkt der Linie
+  if (svgRoot){
+    let first = null;
+    svgRoot.querySelectorAll('[data-typ],[data-type]').forEach(el => {
+      if (first) return;
+      if (!isPoint(el)) return;
+      if (matchesAnyLine(el, ln)) first = el;
+    });
+    if (first && focusElementSmart(first, 2.0)){
+      toast('Sprung: Linie ' + ln);
+      return true;
+    }
+  }
+
+  return false;
+}
 function embedSvg(svgText) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svgText, 'image/svg+xml');
@@ -867,8 +876,6 @@ function embedSvg(svgText) {
 
     view.base = getInitialViewBox(svgRoot);
     setViewBox({ ...view.base });
- // Startansicht: MU auf 200%
- focusOnDataCode('MU', 2);
 
     rebuildRouteList();
     enablePointClickCycle();
@@ -956,6 +963,11 @@ function embedSvg(svgText) {
   $('lineOff').addEventListener('click', removeSelectedLine);
   $('resetAll').addEventListener('click', resetAll);
   $('resetView').addEventListener('click', resetView);
+ $('jumpLine') && $('jumpLine').addEventListener('click', () => {
+   const line = $('lineSelect').value;
+   if (!line) { toast('Bitte zuerst eine Strecke wählen.'); return; }
+   if (!jumpToLine(line)) toast('Kein Sprungziel gefunden.');
+ });
 
   
 
