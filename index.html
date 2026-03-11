@@ -184,7 +184,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:50 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:05 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
@@ -245,8 +245,9 @@ header{ padding: 10px 12px; }
         <option value="clear">Linie (Override entfernen)</option>
       </select>
     </div>
-    <div class="hint">Tipp: Wischen startet als Markierung nur, wenn du auf einem Punkt beginnst. Sonst verschiebst du die Karte wie bisher.</div>
+    <div class="hint">Tipp: Markieren startet nur, wenn du auf einem Punkt beginnst. Sonst verschiebst du die Karte wie bisher.</div>
   </div>
+
 
       <div class="btns" style="margin-top:8px;">
         <button type="button" class="btn primary" id="lineBlue">Kundig (blau)</button>
@@ -360,14 +361,13 @@ function enableTouchGestures(){
   function markPoint(el){
     if(!el || !el.id) return;
     const now = Date.now();
-    if (now - lastMarkTs < 25) return;
+    if (now - lastMarkTs < 20) return;
     lastMarkTs = now;
     if (markSet.has(el.id)) return;
     markSet.add(el.id);
     const mode = swipeMode();
     if (mode === 'clear') {
       if (selection.overrides && selection.overrides[el.id]) delete selection.overrides[el.id];
-      // zurück auf Linienstatus
       setVisual(el, getLineStatusForElement(el));
     } else {
       selection.overrides[el.id] = mode;
@@ -395,17 +395,7 @@ function enableTouchGestures(){
     moved = 0;
 
     if (e.touches.length === 1){
-      markSet = new Set();
-      lastMarkTs = 0;
-      // Wenn Wischmodus aktiv ist und Start auf einem Punkt: markieren statt verschieben
-      const startEl = (typeof document.elementFromPoint === 'function') ? document.elementFromPoint(t.clientX, t.clientY) : e.target;
-      const pt0 = findPointFromTarget(startEl);
-      if (swipeEnabled() && pt0 && isPoint(pt0)) {
-        mode = 'mark';
-        markPoint(pt0);
-      } else {
-        mode = 'pan';
-      }
+      mode = 'pan';
       const t = e.touches[0];
       pan = { x: t.clientX, y: t.clientY, vb: { ...view.cur }, target: e.target, t: Date.now() };
       pinch = null;
@@ -423,9 +413,7 @@ function enableTouchGestures(){
       const t = e.touches[0];
       const elAt = (typeof document.elementFromPoint === 'function') ? document.elementFromPoint(t.clientX, t.clientY) : e.target;
       const pt = findPointFromTarget(elAt);
-      if (pt && isPoint(pt)) {
-        markPoint(pt);
-      }
+      if (pt && isPoint(pt)) markPoint(pt);
       e.preventDefault();
       return;
     }
@@ -472,6 +460,19 @@ function enableTouchGestures(){
   }, {passive:false});
 
   svgRoot.addEventListener('touchend', (e)=>{
+    if (mode === 'mark') {
+      if (e.touches.length === 0) {
+        try{ renderActiveLines(); }catch(e){}
+        try{ renderOrtskenntnisList(); }catch(e){}
+        mode = 'none';
+        pan = null;
+        pinch = null;
+        moved = 0;
+      }
+      e.preventDefault();
+      return;
+    }
+
     try{
       if (mode === 'pan' && pan){
         const dt = Date.now() - pan.t;
@@ -500,10 +501,6 @@ function enableTouchGestures(){
       }
     } catch(e) {}
 
-    if (mode === 'mark') {
-      try{ renderActiveLines(); }catch(e){}
-      try{ renderOrtskenntnisList(); }catch(e){}
-    }
     if (e.touches.length === 0){
       mode = 'none';
       pan = null;
