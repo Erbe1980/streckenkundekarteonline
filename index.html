@@ -150,8 +150,6 @@ header{ padding: 10px 12px; }
 
 /* Text standardmässig sichtbar (besser verständlich). Toggle kann auf Icons-only wechseln. */
 .btnTxt{ display:inline; font-weight:650; font-size:12px; }
-.actionsBar[data-mode="icons"] .btnTxt{ display:none; }
-
 /* Farbcodes */
 .btnSave{ border-color: rgba(0,112,255,0.70); }
 .btnLoad{ border-color: rgba(0,200,90,0.60); }
@@ -186,30 +184,23 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 10:01 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 10:05 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
     </div>
     <div class="headerRight">
-<div class="actionsBar" data-mode="text"> 
+<div class="actionsBar">
         <div class="actionGroup">
-          <div class="groupTitle">Datei</div>
+          <div class="groupTitle">Lokal</div>
           <div class="groupBtns">
-            <button class="btn iconBtn btnSave" id="saveJson" title="Speichern (Datei)" aria-label="Speichern (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14l2 2v16H3V3h2zm2 2v6h10V5H7zm0 10v4h10v-4H7z"/></svg><span class="btnTxt">Speichern</span></button>
-            <button class="btn iconBtn btnLoad" id="loadJson" title="Laden (Datei)" aria-label="Laden (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H9v5H5v13h16V3zm-8 7V5h6v14H7V10h4zm1.5 3V9h-1v4H9.5L12 15.5 14.5 13H12.5z"/></svg><span class="btnTxt">Laden</span></button>
-            <button class="btn iconBtn btnShare" id="shareJson" title="Teilen…" aria-label="Teilen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 16a3 3 0 0 0-2.4 1.2L8.9 13.7a3.2 3.2 0 0 0 0-3.4l6.7-3.5A3 3 0 1 0 15 5a3 3 0 0 0 .1.7L8.4 9.2a3 3 0 1 0 0 5.6l6.7 3.5A3 3 0 1 0 18 16z"/></svg><span class="btnTxt">Teilen</span></button>
+            <button type="button" class="btn iconBtn btnSave" id="saveJson" title="Speichern (lokal)" aria-label="Speichern (lokal)">💾 <span class="btnTxt">Speichern</span></button>
+            <button type="button" class="btn iconBtn btnLoad" id="loadJson" title="Laden (lokal)" aria-label="Laden (lokal)">⬇︎ <span class="btnTxt">Laden</span></button>
+            <button type="button" class="btn iconBtn btnShare" id="shareJson" title="Teilen" aria-label="Teilen">⤴︎ <span class="btnTxt">Teilen</span></button>
           </div>
         </div>
-
-        <div class="actionGroup">
-          <div class="groupTitle">Browser</div>
-          <div class="groupBtns">
-</div>
-        </div>
-
-        <button class="modeToggle" id="actionModeToggle" title="Anzeige umschalten" aria-label="Anzeige umschalten">Modus: <b>Text</b></button>
       </div>
     </div>
   </div>
+</div>
 </header>
 
 <div class="wrap">
@@ -1275,6 +1266,23 @@ function loadStateFromFile(file) {
   });
 }
 
+function persistMeta(){
+  try{
+    const m = { vorname: $('vorname')?$('vorname').value:'', nachname: $('nachname')?$('nachname').value:'', datum: $('datum')?$('datum').value:'' };
+    localStorage.setItem('mev_meta_v1', JSON.stringify(m));
+  }catch(e){}
+}
+function restoreMeta(){
+  try{
+    const raw = localStorage.getItem('mev_meta_v1');
+    if(!raw) return;
+    const m = JSON.parse(raw);
+    if(m && $('vorname') && typeof m.vorname==='string') $('vorname').value = m.vorname;
+    if(m && $('nachname') && typeof m.nachname==='string') $('nachname').value = m.nachname;
+    if(m && $('datum') && typeof m.datum==='string') $('datum').value = m.datum;
+  }catch(e){}
+}
+
 window.addEventListener('load', function(){
   try {
     var d = $('datum');
@@ -1329,6 +1337,13 @@ rebuildRouteList();
   const st = document.getElementById('autoloadStatus');
   const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
 
+  function isEditing(){
+    const a = document.activeElement;
+    if(!a) return false;
+    const t = (a.tagName || '').toLowerCase();
+    return (t === 'input' || t === 'textarea' || t === 'select');
+  }
+
   function abs(rel){
     const base = window.location.href.split('#')[0];
     return new URL(rel, base).toString();
@@ -1351,49 +1366,23 @@ rebuildRouteList();
   }
 
   function loadSvgViaObject(){
-    return new Promise((resolve, reject) => {
-      const host = document.getElementById('mapHost');
-      if(!host) return reject(new Error('mapHost fehlt'));
-
-      host.innerHTML = '<object id="svgObj" type="image/svg+xml"></object>';
-      const obj = document.getElementById('svgObj');
-      if(!obj) return reject(new Error('svgObj fehlt'));
-
-      obj.addEventListener('load', () => {
-        try{
-          const doc = obj.contentDocument;
-          if(!doc) throw new Error('contentDocument leer');
-          const svg = doc.querySelector('svg');
-          if(!svg) throw new Error('keine <svg>-Wurzel');
-
-          svgRoot = svg;
-          svgRoot.style.width = '100%';
-          svgRoot.style.height = '100%';
-          svgRoot.style.display = 'block';
-          svgRoot.style.maxWidth = '100%';
-
-          view.base = getInitialViewBox(svgRoot);
-          setViewBox({ ...view.base });
-          rebuildRouteList();
-          enablePointClickCycle();
-          enablePanHandlers();
-          enableWheelZoom();
- enableTouchGestures();
-          applySelection();
-          renderActiveLines();
-
-          resolve();
-        } catch(e){ reject(e); }
-      });
-      obj.addEventListener('error', () => reject(new Error('object load error')));
-
-      obj.data = abs('assets/map.svg');
+    return new Promise(async (resolve, reject) => {
+      try{
+        const url = abs('assets/map.svg');
+        const r = await fetch(url, { cache:'no-store' });
+        if(!r.ok) throw new Error('SVG HTTP ' + r.status);
+        const txt = await r.text();
+        embedSvg(txt);
+        setTimeout(resolve, 0);
+      } catch(e){ reject(e); }
     });
   }
 
   let running = false;
  let done = false;
   async function autoload(){
+    if (done) return;
+    if (isEditing()) return;
     if(running) return;
     running = true;
     try{
@@ -1401,6 +1390,7 @@ rebuildRouteList();
       setStatus('lade SVG …');
       await loadSvgViaObject();
       setStatus('fertig');
+      done = true;
  done = true;
  window.__autoloadDone = true;
     } catch(e){
@@ -1418,17 +1408,15 @@ rebuildRouteList();
   }
 
   function schedule(){
+    if (done) return;
+    if (isEditing()) return;
  if (done) return;
     setTimeout(autoload, 0);
-    setTimeout(autoload, 250);
-    setTimeout(autoload, 1200);
-  }
+    }
+
+  });
 
   schedule();
-  document.addEventListener('DOMContentLoaded', schedule);
-  window.addEventListener('load', schedule);
-  window.addEventListener('pageshow', schedule);
-  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') schedule(); });
 })();
 
 </script>
