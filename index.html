@@ -164,11 +164,11 @@ header{ padding: 10px 12px; }
   .personRow input[type=date]{ grid-column: 1 / -1; }
 }
 
-.swipeBtn{ border-color: rgba(255,255,255,0.18); }
-.swipeBtn.active{ outline: 2px solid rgba(0,112,255,0.55); }
-.swipeBtn[data-swipe="kundig"].active{ outline-color: rgba(0,112,255,0.75); }
-.swipeBtn[data-swipe="unkundig"].active{ outline-color: rgba(255,42,42,0.70); }
-.swipeBtn[data-swipe="neutral"].active{ outline-color: rgba(255,255,255,0.35); }
+.modeBtn, .statusBtn{ border-color: rgba(255,255,255,0.18); }
+.modeBtn.active{ outline: 2px solid rgba(140,90,255,0.65); }
+.statusBtn.active{ outline: 2px solid rgba(0,112,255,0.65); }
+.statusBtn[data-status="unkundig"].active{ outline-color: rgba(255,42,42,0.70); }
+.statusBtn[data-status="neutral"].active{ outline-color: rgba(255,255,255,0.35); }
 
 </style>
 
@@ -190,7 +190,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:24 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:38 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
@@ -230,44 +230,39 @@ header{ padding: 10px 12px; }
   <input id="datum" type="date" />
   <div class="hint" id="metaHint" style="margin-top:6px;">Bitte Vorname, Name und Datum eintragen. Danach lädt die Karte automatisch.</div>
 </div>
+
 <div class="hr"></div>
 
 <h2>Modus</h2>
-<div class="row" id="modusBlock" style="margin-bottom:12px;">
-  <label style="display:flex; gap:8px; align-items:center; margin:0;">
-    <input id="swipeMark" type="checkbox" style="width:auto;"> Wischen markieren
-  </label>
-
-  <label style="display:flex; gap:8px; align-items:center; margin:0;">
-    <input id="lockMap" type="checkbox" style="width:auto;"> Karte fixieren
-  </label>
-
-  <div class="swipeBtns" id="swipeBtns" style="display:flex; gap:8px; flex-wrap:wrap;">
-    <button type="button" class="btn swipeBtn active" data-swipe="kundig">Kundig</button>
-    <button type="button" class="btn swipeBtn" data-swipe="unkundig">Auffrischung</button>
-    <button type="button" class="btn swipeBtn" data-swipe="neutral">Nicht kundig</button>
+<div class="row" id="modeBlock" style="margin-bottom:12px;">
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button type="button" class="btn modeBtn active" data-mode="wischen">Wischen</button>
+    <button type="button" class="btn modeBtn" data-mode="einzeln">Einzeln</button>
+    <button type="button" class="btn modeBtn" data-mode="linien">Linien</button>
   </div>
+  <label style="display:flex; gap:8px; align-items:center; margin:0;">
+    <input id="lockMap" type="checkbox" style="width:auto;" checked> Karte fixieren
+  </label>
+  <div class="hint" id="modeHint">Wischen: Karte ist fixiert. Über Stationen wischen zum Markieren.</div>
+</div>
 
-  <div class="hint">Fixieren: Karte bewegt sich nicht. Wischen markiert Punkte. Ohne Fixieren markiert Wischen nur, wenn du auf einem Punkt startest.</div>
+<h2>Status</h2>
+<div class="row" id="statusBlock" style="margin-bottom:12px;">
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button type="button" class="btn statusBtn active" data-status="kundig">Kundig</button>
+    <button type="button" class="btn statusBtn" data-status="unkundig">Auffrischung</button>
+    <button type="button" class="btn statusBtn" data-status="neutral">Nicht kundig</button>
+  </div>
+  <div class="hint">Einzeln/Wischen: setzt Stationen auf den gewählten Status. Linien: setzt den Status für die gewählte Linie.</div>
 </div>
 
 <h2>Strecke wählen & markieren</h2>
+
     <div class="row">
       <label>Auswahl</label>
       <div id="selectedRoute" class="hint"></div>
       <input type="hidden" id="lineSelect" value="" />
   <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
-
-      <div class="btns" style="margin-top:8px;">
-        <button type="button" class="btn primary" id="lineBlue">Kundig (blau)</button>
-        <button type="button" class="btn danger" id="lineRed">Auffrischung (rot)</button>
-        <button type="button" class="btn full" id="lineOff">Linie entfernen</button>
-      </div>
-
-      <div class="btns" style="margin-top:8px;">
-        <button type="button" class="btn" id="resetView">Ansicht zurücksetzen</button>
-        <button type="button" class="btn" id="resetAll">Alles zurücksetzen</button>
-      </div>
 
       <div class="row" style="margin-top:10px; margin-bottom:0;">
         <label>Streckenliste</label>
@@ -332,41 +327,25 @@ header{ padding: 10px 12px; }
 
   const $ = (id) => document.getElementById(id);
 
-// --- Modus: Wischen markieren / Karte fixieren ---
-window.__swipeCfg = { status:'kundig' };
-function swipeEnabled(){ const cb=$('swipeMark'); return !!(cb && cb.checked); }
-function lockEnabled(){ const cb=$('lockMap'); return !!(cb && cb.checked); }
-function swipeStatus(){ return (window.__swipeCfg && window.__swipeCfg.status) ? window.__swipeCfg.status : 'kundig'; }
-function setSwipeStatus(st){
-  window.__swipeCfg.status = st;
-  const host = $('swipeBtns');
-  if (host){
-    host.querySelectorAll('.swipeBtn').forEach(b => b.classList.toggle('active', b.getAttribute('data-swipe')===st));
-  }
-}
-function wireSwipeUi(){
-  const host = $('swipeBtns');
-  if (host && !host.dataset.bound){
-    host.dataset.bound='1';
-    host.addEventListener('click', (ev)=>{
-      const btn = ev.target && ev.target.closest ? ev.target.closest('button[data-swipe]') : null;
-      if (!btn) return;
-      ev.preventDefault();
-      const st = btn.getAttribute('data-swipe') || 'kundig';
-      setSwipeStatus(st);
-      toast('Modus: ' + (st==='kundig'?'kundig':(st==='unkundig'?'auffrischung':'nicht kundig')));
-    });
-  }
+// --- UI State: Modus + Status (stabil) ---
+window.__uiState = { mode: 'wischen', status: 'kundig' };
+function setMode(m){
+  window.__uiState.mode = m;
+  document.querySelectorAll('.modeBtn').forEach(b => b.classList.toggle('active', b.getAttribute('data-mode')===m));
   const lm = $('lockMap');
-  const sm = $('swipeMark');
-  if (lm && !lm.dataset.bound){
-    lm.dataset.bound='1';
-    lm.addEventListener('change', ()=>{
-      if (lm.checked && sm && !sm.checked) sm.checked = true;
-      toast(lm.checked ? 'Karte fixiert.' : 'Karte frei.');
-    });
+  if (lm){ lm.checked = (m === 'wischen'); }
+  const hint = $('modeHint');
+  if (hint){
+    hint.textContent = (m === 'wischen') ? 'Wischen: Karte ist fixiert. Über Stationen wischen zum Markieren.' : (m === 'einzeln' ? 'Einzeln: Tippen setzt Stationen auf den gewählten Status.' : 'Linien: Streckenliste nutzen und Status für die gewählte Linie setzen.');
   }
 }
+function setStatus(st){
+  window.__uiState.status = st;
+  document.querySelectorAll('.statusBtn').forEach(b => b.classList.toggle('active', b.getAttribute('data-status')===st));
+}
+function curMode(){ return window.__uiState.mode; }
+function curStatus(){ return window.__uiState.status; }
+function lockEnabled(){ const lm = $('lockMap'); return !!(lm && lm.checked); }
 
 // === iOS: Tap auf sichtbaren <path> -> Marker-Element finden (data-typ/data-type) ===
 function findPointFromTarget(t){
@@ -394,32 +373,18 @@ function findPointFromTarget(t){
 // === iOS: Pinch-Zoom + 1-Finger-Pan (nur SVG) + Tap (ohne click-Abhängigkeit) ===
 function enableTouchGestures(){
   if (!svgRoot) return;
-
   let mode = 'none';
-  let pan = null;   // {x,y,vb,target,t}
-  let pinch = null; // {dist,vb}
+  let pan = null;
+  let pinch = null;
   let moved = 0;
   let markSet = new Set();
   let lastMarkTs = 0;
-  function markPoint(el){
-    if(!el || !el.id) return;
-    const now = Date.now();
-    if (now - lastMarkTs < 20) return;
-    lastMarkTs = now;
-    if (markSet.has(el.id)) return;
-    markSet.add(el.id);
-    const mode = swipeStatus();
-    selection.overrides = selection.overrides || {};
-    selection.overrides[el.id] = mode;
-    setVisual(el, mode);
-  }
 
   function dist(a,b){
     const dx = a.clientX - b.clientX;
     const dy = a.clientY - b.clientY;
     return Math.sqrt(dx*dx + dy*dy);
   }
-
   function clientToSvgXY(cx, cy){
     const pt = svgRoot.createSVGPoint();
     pt.x = cx; pt.y = cy;
@@ -428,18 +393,49 @@ function enableTouchGestures(){
     const sp = pt.matrixTransform(ctm.inverse());
     return {x: sp.x, y: sp.y};
   }
+  function markPoint(el){
+    if (!el || !el.id) return;
+    const now = Date.now();
+    if (now - lastMarkTs < 18) return;
+    lastMarkTs = now;
+    if (markSet.has(el.id)) return;
+    markSet.add(el.id);
+    const st = (curStatus ? curStatus() : 'kundig');
+    selection.overrides = selection.overrides || {};
+    selection.overrides[el.id] = st;
+    setVisual(el, st);
+  }
 
   svgRoot.addEventListener('touchstart', (e)=>{
     if (!view.cur || !view.base) return;
     moved = 0;
 
+    if (curMode && curMode() === 'wischen'){
+      // Karte fixiert: nur markieren
+      if (e.touches.length === 1){
+        mode = 'mark';
+        markSet = new Set();
+        lastMarkTs = 0;
+        const t = e.touches[0];
+        const pt = pointFromClientXY(t.clientX, t.clientY);
+        if (pt) markPoint(pt);
+        moved = 20;
+      }
+      e.preventDefault();
+      return;
+    }
+
+    if (lockEnabled && lockEnabled()){
+      e.preventDefault();
+      return;
+    }
+
     if (e.touches.length === 1){
       mode = 'pan';
       const t = e.touches[0];
-      pan = { x: t.clientX, y: t.clientY, vb: { ...view.cur }, target: e.target, t: Date.now() };
+      pan = { x: t.clientX, y: t.clientY, vb: { ...view.cur } };
       pinch = null;
     } else if (e.touches.length >= 2){
-      if (lockEnabled()) { e.preventDefault(); return; }
       mode = 'pinch';
       pinch = { dist: dist(e.touches[0], e.touches[1]), vb: { ...view.cur } };
       pan = null;
@@ -449,28 +445,23 @@ function enableTouchGestures(){
   }, {passive:false});
 
   svgRoot.addEventListener('touchmove', (e)=>{
-    if (mode === 'mark' && e.touches.length === 1) {
+    if (!view.cur || !view.base) return;
+
+    if (mode === 'mark' && e.touches.length === 1){
       const t = e.touches[0];
-      const elAt = (typeof document.elementFromPoint === 'function') ? document.elementFromPoint(t.clientX, t.clientY) : e.target;
-      const pt = findPointFromTarget(elAt);
-      if (pt && isPoint(pt)) markPoint(pt);
+      const pt = pointFromClientXY(t.clientX, t.clientY);
+      if (pt) markPoint(pt);
       e.preventDefault();
       return;
     }
-    if (lockEnabled() && mode === 'pan') { e.preventDefault(); return; }
-
-    if (!view.cur || !view.base) return;
 
     if (mode === 'pan' && pan && e.touches.length === 1){
       const t = e.touches[0];
       const dx = t.clientX - pan.x;
       const dy = t.clientY - pan.y;
-      moved = Math.max(moved, Math.abs(dx) + Math.abs(dy));
-
       const rect = svgRoot.getBoundingClientRect();
       const sx = pan.vb.w / rect.width;
       const sy = pan.vb.h / rect.height;
-
       setViewBox({ x: pan.vb.x - dx*sx, y: pan.vb.y - dy*sy, w: pan.vb.w, h: pan.vb.h });
     }
 
@@ -478,75 +469,41 @@ function enableTouchGestures(){
       const d = dist(e.touches[0], e.touches[1]);
       if (d <= 0) return;
       const scale = pinch.dist / d;
-
       const vb0 = pinch.vb;
       const nw = vb0.w * scale;
       const nh = vb0.h * scale;
       const minW = view.base.w * 0.02;
       const maxW = view.base.w * 20;
       if (nw < minW || nw > maxW) return;
-
       const mx = (e.touches[0].clientX + e.touches[1].clientX)/2;
       const my = (e.touches[0].clientY + e.touches[1].clientY)/2;
       const mid = clientToSvgXY(mx, my);
-
       const nx = mid.x - (mid.x - vb0.x) * (nw / vb0.w);
       const ny = mid.y - (mid.y - vb0.y) * (nh / vb0.h);
-
       setViewBox({ x: nx, y: ny, w: nw, h: nh });
-      moved = Math.max(moved, 20);
     }
 
     e.preventDefault();
   }, {passive:false});
 
   svgRoot.addEventListener('touchend', (e)=>{
-    if (mode === 'mark') {
-      if (e.touches.length === 0) {
-        try{ renderActiveLines(); }catch(e){}
-        try{ renderOrtskenntnisList(); }catch(e){}
+    if (mode === 'mark'){
+      if (e.touches.length === 0){
+        try{ applySelection(); }catch(err){}
+        try{ renderActiveLines(); }catch(err){}
+        try{ renderOrtskenntnisList(); }catch(err){}
         mode = 'none';
         pan = null;
         pinch = null;
-        moved = 0;
       }
       e.preventDefault();
       return;
     }
 
-    try{
-      if (mode === 'pan' && pan){
-        const dt = Date.now() - pan.t;
-        const wasTap = (moved < 10) && (dt < 350);
-        if (wasTap){
-          const pt = findPointFromTarget(pan.target);
-          if (pt && isPoint(pt)) {
-            const id = pt.id;
-            if (id){
-              const baseStatus = getLineStatusForElement(pt);
-              const cur = selection.overrides[id] || '';
-              let next = 'kundig';
-              if (cur === '') next = 'kundig';
-              else if (cur === 'kundig') next = 'unkundig';
-              else if (cur === 'unkundig') next = 'neutral';
-              else if (cur === 'neutral') next = '';
-              if (next === '') delete selection.overrides[id];
-              else selection.overrides[id] = next;
-              applySelection();
-              renderActiveLines();
-              const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
-              toast(`${pointDisplayName(pt)}: ${msg}`);
-            }
-          }
-        }
-      }
-    } catch(e) {}
-
     if (e.touches.length === 0){
       mode = 'none';
       pan = null;
       pinch = null;
-      moved = 0;
     }
     e.preventDefault();
   }, {passive:false});
@@ -666,6 +623,17 @@ function enableTouchGestures(){
     if (lbl) return lbl;
   }catch(e){}
   return (el.id || '');
+}
+
+function pointFromClientXY(cx, cy){
+  try{
+    const els = document.elementsFromPoint ? document.elementsFromPoint(cx, cy) : [document.elementFromPoint(cx, cy)];
+    for (let i=0;i<els.length;i++){
+      const pt = findPointFromTarget(els[i]);
+      if (pt && isPoint(pt)) return pt;
+    }
+  }catch(e){}
+  return null;
 }
 
 function getLabelForEl(el) {
@@ -891,31 +859,20 @@ function renderOrtskenntnisList() {
     if (cur) setSelectedLineUi(cur);
   }
 
-  function enablePointClickCycle() {
- if (!svgRoot) return;
- svgRoot.addEventListener('click', (ev) => {
-   const pt = findPointFromTarget(ev.target);
-   if (!pt || !isPoint(pt)) return;
-   const id = pt.id;
-   if (!id) return;
-
-   const baseStatus = getLineStatusForElement(pt);
-   const cur = selection.overrides[id] || '';
-   let next = 'kundig';
-   if (cur === '') next = 'kundig';
-   else if (cur === 'kundig') next = 'unkundig';
-   else if (cur === 'unkundig') next = 'neutral';
-   else if (cur === 'neutral') next = '';
-
-   if (next === '') delete selection.overrides[id];
-   else selection.overrides[id] = next;
-
-   applySelection();
-   renderActiveLines();
-   const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
-   toast(`${pointDisplayName(pt)}: ${msg}`);
-   ev.stopPropagation();
- });
+  function enablePointClickCycle(){
+  if (!svgRoot) return;
+  svgRoot.addEventListener('click', (ev) => {
+    if (curMode && curMode() !== 'einzeln') return;
+    const pt = findPointFromTarget(ev.target);
+    if (!pt || !isPoint(pt)) return;
+    const st = (curStatus ? curStatus() : 'kundig');
+    selection.overrides = selection.overrides || {};
+    selection.overrides[pt.id] = st;
+    applySelection();
+    renderActiveLines();
+    toast(`${pointDisplayName(pt)}: ${st === 'kundig' ? 'kundig' : (st === 'unkundig' ? 'auffrischung' : 'nicht kundig')}`);
+    ev.stopPropagation();
+  });
 }
 
   function getInitialViewBox(svg) {
@@ -1058,7 +1015,18 @@ function renderOrtskenntnisList() {
   renderOrtskenntnisList();
 }
 
-  function setSelectedLineStatus(status) {
+  
+function applyStatusToSelectedLine(){
+  const line = $('lineSelect') ? $('lineSelect').value : '';
+  if (!line) { toast('Bitte zuerst eine Strecke wählen.'); return; }
+  const st = curStatus ? curStatus() : 'kundig';
+  if (st === 'kundig') { setSelectedLineStatus('kundig'); return; }
+  if (st === 'unkundig') { setSelectedLineStatus('unkundig'); return; }
+  // nicht kundig = Linie entfernen
+  removeSelectedLine();
+}
+
+function setSelectedLineStatus(status) {
   const line = $('lineSelect').value;
   if (!line) { toast('Bitte zuerst eine Strecke in der Liste wählen.'); return; }
   const prev = selection.activeLines[line];
@@ -1121,9 +1089,6 @@ selection.activeLines[line] = status;
     }
   });
 
-  $('lineBlue').addEventListener('click', () => setSelectedLineStatus('kundig'));
-  $('lineRed').addEventListener('click', () => setSelectedLineStatus('unkundig'));
-  $('lineOff').addEventListener('click', removeSelectedLine);
   $('resetAll').addEventListener('click', resetAll);
   $('resetView').addEventListener('click', resetView);
 
@@ -1412,11 +1377,38 @@ function restoreMeta(){
   }catch(e){}
 }
 
+function wireModeStatusUi(){
+  document.querySelectorAll('.modeBtn').forEach(btn => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', (ev)=>{
+      ev.preventDefault();
+      setMode(btn.getAttribute('data-mode') || 'wischen');
+    });
+  });
+
+  document.querySelectorAll('.statusBtn').forEach(btn => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', (ev)=>{
+      ev.preventDefault();
+      setStatus(btn.getAttribute('data-status') || 'kundig');
+      try{ if (curMode && curMode()==='linien') applyStatusToSelectedLine(); }catch(e){}
+    });
+  });
+
+  const lm = $('lockMap');
+  if (lm && !lm.dataset.bound){
+    lm.dataset.bound='1';
+    lm.addEventListener('change', ()=>{ if (curMode()==='wischen') lm.checked = true; });
+  }
+}
 window.addEventListener('load', function(){
   try {
     var d = $('datum');
     if (d && !d.value) d.value = todayISO();
-  try{ wireSwipeUi(); }catch(e){}
+  try{ wireModeStatusUi(); }catch(e){}
+  try{ setMode('wischen'); setStatus('kundig'); }catch(e){}
 
   // Personendaten merken
   try{ restoreMeta(); }catch(e){}
