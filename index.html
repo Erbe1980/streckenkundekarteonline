@@ -191,7 +191,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:11 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:18 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
@@ -232,33 +232,34 @@ header{ padding: 10px 12px; }
   <div class="hint" id="metaHint" style="margin-top:6px;">Bitte Vorname, Name und Datum eintragen. Danach lädt die Karte automatisch.</div>
 </div>
 <div class="hr"></div>
+
+<div class="row" id="modusBlock" style="margin-bottom:12px;">
+  <label>Modus</label>
+
+  <label style="display:flex; gap:8px; align-items:center; margin:0;">
+    <input id="swipeMark" type="checkbox" style="width:auto;"> Wischen markieren
+  </label>
+
+  <label style="display:flex; gap:8px; align-items:center; margin:0;">
+    <input id="lockMap" type="checkbox" style="width:auto;"> Karte fixieren
+  </label>
+
+  <div class="swipeBtns" id="swipeBtns" style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button type="button" class="btn swipeBtn active" data-swipe="kundig">Kundig</button>
+    <button type="button" class="btn swipeBtn" data-swipe="unkundig">Auffrischung</button>
+    <button type="button" class="btn swipeBtn" data-swipe="neutral">Neutral</button>
+    <button type="button" class="btn swipeBtn" data-swipe="clear">Linie</button>
+  </div>
+
+  <div class="hint">Fixieren: Karte bewegt sich nicht. Wischen markiert Punkte, sobald du einen Punkt triffst.</div>
+</div>
+
 <h2>Strecke wählen & markieren</h2>
     <div class="row">
       <label>Auswahl</label>
       <div id="selectedRoute" class="hint"></div>
       <input type="hidden" id="lineSelect" value="" />
   <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
-  <div class="row" style="margin-top:8px; margin-bottom:0;">
-    <label>Wischmodus</label>
-
-    <label style="display:flex; gap:8px; align-items:center; margin:0;">
-      <input id="swipeMark" type="checkbox" style="width:auto;"> Markieren mit Wischen
-    </label>
-
-    <label style="display:flex; gap:8px; align-items:center; margin:0;">
-      <input id="lockMap" type="checkbox" style="width:auto;"> Karte fixieren (nicht verschieben/zoomen)
-    </label>
-
-    <div class="swipeBtns" id="swipeBtns" style="display:flex; gap:8px; flex-wrap:wrap;">
-      <button type="button" class="btn swipeBtn active" data-swipe="kundig">Kundig</button>
-      <button type="button" class="btn swipeBtn" data-swipe="unkundig">Auffrischung</button>
-      <button type="button" class="btn swipeBtn" data-swipe="neutral">Neutral</button>
-      <button type="button" class="btn swipeBtn" data-swipe="clear">Linie</button>
-    </div>
-
-    <div class="hint">Tipp: Wenn „Karte fixieren“ aktiv ist, kannst du überall wischen – es wird nur markiert. Ohne Fixieren markierst du nur, wenn du auf einem Punkt startest.</div>
-  </div>
-
 
       <div class="btns" style="margin-top:8px;">
         <button type="button" class="btn primary" id="lineBlue">Kundig (blau)</button>
@@ -334,7 +335,7 @@ header{ padding: 10px 12px; }
 
   const $ = (id) => document.getElementById(id);
 
-// --- Wischmodus Konfiguration ---
+// --- Modus: Wischen markieren / Karte fixieren ---
 window.__swipeCfg = { status:'kundig' };
 function swipeEnabled(){ const cb=$('swipeMark'); return !!(cb && cb.checked); }
 function lockEnabled(){ const cb=$('lockMap'); return !!(cb && cb.checked); }
@@ -356,16 +357,20 @@ function wireSwipeUi(){
       ev.preventDefault();
       const st = btn.getAttribute('data-swipe') || 'kundig';
       setSwipeStatus(st);
-      toast('Markierung: ' + (st==='kundig'?'kundig':(st==='unkundig'?'auffrischung':(st==='neutral'?'neutral':'Linie'))));
+      toast('Modus: ' + (st==='kundig'?'kundig':(st==='unkundig'?'auffrischung':(st==='neutral'?'neutral':'Linie'))));
     });
   }
   const lm = $('lockMap');
+  const sm = $('swipeMark');
   if (lm && !lm.dataset.bound){
     lm.dataset.bound='1';
-    lm.addEventListener('change', ()=> toast(lm.checked ? 'Karte fixiert.' : 'Karte frei.'));
+    lm.addEventListener('change', ()=>{
+      // Fixieren aktiviert automatisch Wischen markieren
+      if (lm.checked && sm && !sm.checked) sm.checked = true;
+      toast(lm.checked ? 'Karte fixiert.' : 'Karte frei.');
+    });
   }
 }
-
 
 // === iOS: Tap auf sichtbaren <path> -> Marker-Element finden (data-typ/data-type) ===
 function findPointFromTarget(t){
@@ -442,6 +447,7 @@ function enableTouchGestures(){
       pan = { x: t.clientX, y: t.clientY, vb: { ...view.cur }, target: e.target, t: Date.now() };
       pinch = null;
     } else if (e.touches.length >= 2){
+      if (lockEnabled()) { e.preventDefault(); return; }
       mode = 'pinch';
       pinch = { dist: dist(e.touches[0], e.touches[1]), vb: { ...view.cur } };
       pan = null;
@@ -459,6 +465,7 @@ function enableTouchGestures(){
       e.preventDefault();
       return;
     }
+    if (lockEnabled() && mode === 'pan') { e.preventDefault(); return; }
 
     if (!view.cur || !view.base) return;
 
@@ -1320,7 +1327,6 @@ async function shareOrDownloadJson(){
   toast('Datei heruntergeladen (danach in Dateien teilen).');
 }
 
-
 function downloadJson(payload) {
   var meta = payload.meta || {};
   var fn = 'streckenkundekarte_' + safeFilePart(meta.nachname) + '_' + safeFilePart(meta.vorname) + '_' + safeFilePart(meta.datum) + '.json';
@@ -1416,7 +1422,6 @@ window.addEventListener('load', function(){
     el.addEventListener('change', function(){ try{ persistMeta(); }catch(e){} });
   });
 
-
   // Buttons: Datei
   var bFileSave = $('saveJson');
   if (bFileSave) bFileSave.addEventListener('click', function(ev){
@@ -1461,7 +1466,6 @@ window.addEventListener('load', function(){
     if (applyLoadedPayload(payload)) toast('Aus Browser geladen.');
     else toast('Gespeicherte Daten sind ungültig.');
   });
-
 
  
   } catch (e) {}
