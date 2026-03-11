@@ -178,17 +178,7 @@ header { flex: 0 0 auto; }
    <button class="btn" id="saveLocal">Speichern (Browser)</button>
    <button class="btn" id="loadLocal">Laden (Browser)</button>
 </div>
- <div class="row" style="margin-top:10px;">
-   <label>Streckenkundekarte laden (JSON)</label>
-   <input id="stateFile" type="file" accept="application/json,.json" />
-   <div class="hint">Lädt eine Datei aus "Speichern (Datei)" und stellt Name, Vorname, Datum sowie Markierungen wieder her.</div>
- </div>
- <div class="hint" style="margin-top:6px;">
-   <b>Hinweis:</b> "Speichern (Datei)" lädt eine JSON-Datei herunter (inkl. Linienstatus und Punkt-Overrides).
-   "Teilen…" öffnet das Teilen-Menü (Share Sheet) oder lädt die Datei herunter.
- </div>
-
-
+</div>
 <div class="hr"></div>
 <h2>Strecke wählen & markieren</h2>
     <div class="row">
@@ -218,15 +208,6 @@ header { flex: 0 0 auto; }
         <label>Aktive Linien</label>
         <div id="activeLines" class="hint"></div>
       </div>
-<div class="hint" style="margin-top:10px;">
-        Linie wirkt auf alle Punkte mit <code>data-line</code>, <code>data-line1</code>, <code>data-line2</code>, ... (Vergleich nur über Ziffern, nur 3-stellige Linien).<br>
-        Klick auf einen Punkt: <b>Linie</b> → <b>leer</b> → <b>Kundig</b> → <b>Auffrischung</b> → <b>Linie</b> ...<br>
-        Wenn du einen Punkt auf <b>leer</b> (= neutral) setzt, wird die Linie oben als <b>nicht vollständig</b> markiert und die betroffenen <b>inkscape:label</b> werden durchgestrichen angezeigt.
-      </div>
-
-
-      
- 
 </div>
 </section>
 
@@ -408,18 +389,20 @@ function enableTouchGestures(){
         if (wasTap){
           const pt = findPointFromTarget(pan.target);
           if (pt && isPoint(pt)) {
-            // gleiche Logik wie click auf Punkt
             const id = pt.id;
             if (id){
               const baseStatus = getLineStatusForElement(pt);
               const cur = selection.overrides[id] || '';
-              let next = 'neutral';
-              if (cur === '') next = 'neutral';
-              else if (cur === 'neutral') next = 'kundig';
+              let next = 'kundig';
+              // Zyklus: Linie -> blau -> rot -> neutral -> zurück
+              if (cur === '') next = 'kundig';
               else if (cur === 'kundig') next = 'unkundig';
-              else if (cur === 'unkundig') next = '';
+              else if (cur === 'unkundig') next = 'neutral';
+              else if (cur === 'neutral') next = '';
+
               if (next === '') delete selection.overrides[id];
               else selection.overrides[id] = next;
+
               applySelection();
               renderActiveLines();
               const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
@@ -688,7 +671,25 @@ function renderOrtskenntnisList() {
     return Array.from(new Set(labels));
   }
 
-  function renderActiveLines() {
+  
+function getConflictLabelsForLine(line){
+  if (!svgRoot) return [];
+  const ln = normalizeLine(line);
+  const conflicts = [];
+  svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(el => {
+    if (!isPoint(el)) return;
+    if (!el.id) return;
+    if (!matchesAnyLine(el, ln)) return;
+    if (selection.overrides && selection.overrides[el.id]) return; // manuell hat Vorrang
+    const effective = getLineStatusForElement(el);
+    if (effective === 'kundig') {
+      conflicts.push(getLabelForEl(el) || el.id);
+    }
+  });
+  return Array.from(new Set(conflicts));
+}
+
+function renderActiveLines() {
     const host = $("activeLines");
     if (!host) return;
 
@@ -705,12 +706,16 @@ function renderOrtskenntnisList() {
       const col = (it.status === 'kundig') ? '#0070ff' : (it.status === 'unkundig' ? '#ff2a2a' : '#999');
       const txt = (it.status === 'kundig') ? 'kundig' : (it.status === 'unkundig' ? 'auffrischung' : 'neutral');
       const labels = getNeutralOverrideLabelsForLine(it.line);
-      const incomplete = labels.length > 0;
+ const conflicts = (it.status === 'unkundig') ? getConflictLabelsForLine(it.line) : [];
+
+      const incomplete = (labels.length > 0) || (conflicts.length > 0);
       const dotCol = incomplete ? '#000' : col;
       const borderCol = incomplete ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.15)';
       const extra = incomplete ? ' · nicht vollständig' : '';
-      const detail = incomplete ? ('<div class="hint" style="margin-top:4px;">' + labels.map(t => '<s>' + t.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</s>').join(', ') + '</div>') : '';
-      return `<span class="pill" title="${it.line}" style="border-color:${borderCol}"><b style="color:${dotCol}">●</b> ${it.line} (${txt}${extra})</span>${detail}`;
+ const extra2 = conflicts.length ? ' · überdeckt durch kundig' : '';
+
+      const detail = (labels.length || conflicts.length) ? ('<div class="hint" style="margin-top:4px;">' + (labels.length ? ('<div><s>' + labels.map(t => t.replace(/</g,'&lt;').replace(/>/g,'&gt;')).join('</s>, <s>') + '</s></div>') : '') + (conflicts.length ? ('<div>Überdeckt: ' + conflicts.map(t => t.replace(/</g,'&lt;').replace(/>/g,'&gt;')).join(', ') + '</div>') : '') + '</div>') : '';
+      return `<span class="pill" title="${it.line}" style="border-color:${borderCol}"><b style="color:${dotCol}">●</b> ${it.line} (${txt}${extra}${extra2})</span>${detail}`;
     }).join(' ');
   }
 
@@ -782,11 +787,12 @@ function renderOrtskenntnisList() {
 
    const baseStatus = getLineStatusForElement(pt);
    const cur = selection.overrides[id] || '';
-   let next = 'neutral';
-   if (cur === '') next = 'neutral';
-   else if (cur === 'neutral') next = 'kundig';
+   let next = 'kundig';
+   // Zyklus: Linie -> blau -> rot -> neutral -> zurück
+   if (cur === '') next = 'kundig';
    else if (cur === 'kundig') next = 'unkundig';
-   else if (cur === 'unkundig') next = '';
+   else if (cur === 'unkundig') next = 'neutral';
+   else if (cur === 'neutral') next = '';
 
    if (next === '') delete selection.overrides[id];
    else selection.overrides[id] = next;
@@ -944,11 +950,7 @@ function renderOrtskenntnisList() {
   const line = $('lineSelect').value;
   if (!line) { toast('Bitte zuerst eine Strecke in der Liste wählen.'); return; }
   const prev = selection.activeLines[line];
-  if (status === 'unkundig' && prev === 'kundig') {
-    toast('Kundig hat Vorrang: Linie bleibt kundig.');
-    status = 'kundig';
-  }
-  selection.activeLines[line] = status;
+selection.activeLines[line] = status;
   touchLineOrder(line);
   applySelection();
   renderActiveLines();
@@ -1368,12 +1370,10 @@ rebuildRouteList();
       if(!r.ok) throw new Error('SVG HTTP ' + r.status);
       const txt = await r.text();
       embedSvg(txt);
-      // embedSvg initialisiert alles synchron; kleiner Tick für iOS
       setTimeout(resolve, 0);
     } catch(e){ reject(e); }
   });
 }
-
 
   let running = false;
   async function autoload(){
