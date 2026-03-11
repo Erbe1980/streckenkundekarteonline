@@ -169,7 +169,6 @@ header{ padding: 10px 12px; }
 .swipeBtn[data-swipe="kundig"].active{ outline-color: rgba(0,112,255,0.75); }
 .swipeBtn[data-swipe="unkundig"].active{ outline-color: rgba(255,42,42,0.70); }
 .swipeBtn[data-swipe="neutral"].active{ outline-color: rgba(255,255,255,0.35); }
-.swipeBtn[data-swipe="clear"].active{ outline-color: rgba(0,200,90,0.55); }
 
 </style>
 
@@ -191,7 +190,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:18 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:24 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
@@ -233,9 +232,8 @@ header{ padding: 10px 12px; }
 </div>
 <div class="hr"></div>
 
+<h2>Modus</h2>
 <div class="row" id="modusBlock" style="margin-bottom:12px;">
-  <label>Modus</label>
-
   <label style="display:flex; gap:8px; align-items:center; margin:0;">
     <input id="swipeMark" type="checkbox" style="width:auto;"> Wischen markieren
   </label>
@@ -247,11 +245,10 @@ header{ padding: 10px 12px; }
   <div class="swipeBtns" id="swipeBtns" style="display:flex; gap:8px; flex-wrap:wrap;">
     <button type="button" class="btn swipeBtn active" data-swipe="kundig">Kundig</button>
     <button type="button" class="btn swipeBtn" data-swipe="unkundig">Auffrischung</button>
-    <button type="button" class="btn swipeBtn" data-swipe="neutral">Neutral</button>
-    <button type="button" class="btn swipeBtn" data-swipe="clear">Linie</button>
+    <button type="button" class="btn swipeBtn" data-swipe="neutral">Nicht kundig</button>
   </div>
 
-  <div class="hint">Fixieren: Karte bewegt sich nicht. Wischen markiert Punkte, sobald du einen Punkt triffst.</div>
+  <div class="hint">Fixieren: Karte bewegt sich nicht. Wischen markiert Punkte. Ohne Fixieren markiert Wischen nur, wenn du auf einem Punkt startest.</div>
 </div>
 
 <h2>Strecke wählen & markieren</h2>
@@ -357,7 +354,7 @@ function wireSwipeUi(){
       ev.preventDefault();
       const st = btn.getAttribute('data-swipe') || 'kundig';
       setSwipeStatus(st);
-      toast('Modus: ' + (st==='kundig'?'kundig':(st==='unkundig'?'auffrischung':(st==='neutral'?'neutral':'Linie'))));
+      toast('Modus: ' + (st==='kundig'?'kundig':(st==='unkundig'?'auffrischung':'nicht kundig')));
     });
   }
   const lm = $('lockMap');
@@ -365,7 +362,6 @@ function wireSwipeUi(){
   if (lm && !lm.dataset.bound){
     lm.dataset.bound='1';
     lm.addEventListener('change', ()=>{
-      // Fixieren aktiviert automatisch Wischen markieren
       if (lm.checked && sm && !sm.checked) sm.checked = true;
       toast(lm.checked ? 'Karte fixiert.' : 'Karte frei.');
     });
@@ -413,13 +409,9 @@ function enableTouchGestures(){
     if (markSet.has(el.id)) return;
     markSet.add(el.id);
     const mode = swipeStatus();
-    if (mode === 'clear') {
-      if (selection.overrides && selection.overrides[el.id]) delete selection.overrides[el.id];
-      setVisual(el, getLineStatusForElement(el));
-    } else {
-      selection.overrides[el.id] = mode;
-      setVisual(el, mode);
-    }
+    selection.overrides = selection.overrides || {};
+    selection.overrides[el.id] = mode;
+    setVisual(el, mode);
   }
 
   function dist(a,b){
@@ -543,7 +535,7 @@ function enableTouchGestures(){
               applySelection();
               renderActiveLines();
               const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
-              toast(`${id}: ${msg}`);
+              toast(`${pointDisplayName(pt)}: ${msg}`);
             }
           }
         }
@@ -663,7 +655,20 @@ function enableTouchGestures(){
   return 'neutral';
 }
 
-  function getLabelForEl(el) {
+  function pointDisplayName(el){
+  if (!el) return '';
+  try{
+    const ink = String(el.getAttribute('inkscape:label') || '').trim();
+    if (ink) return ink;
+  }catch(e){}
+  try{
+    const lbl = String(getLabelForEl(el) || '').trim();
+    if (lbl) return lbl;
+  }catch(e){}
+  return (el.id || '');
+}
+
+function getLabelForEl(el) {
     return (el.getAttribute('inkscape:label') || el.getAttribute('aria-label') || el.getAttribute('data-label') || el.id || '').trim();
   }
 
@@ -908,7 +913,7 @@ function renderOrtskenntnisList() {
    applySelection();
    renderActiveLines();
    const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
-   toast(`${id}: ${msg}`);
+   toast(`${pointDisplayName(pt)}: ${msg}`);
    ev.stopPropagation();
  });
 }
