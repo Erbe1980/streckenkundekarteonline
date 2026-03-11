@@ -1,0 +1,1463 @@
+<!doctype html>
+<html lang="de-CH">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>MEV Streckenkundekarten App</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #121a2b;
+      --text: #e8eefc;
+      --muted: #9fb0d0;
+      --line: #23314d;
+      --btn: #1c2b49;
+      --btnHover: #25365c;
+    }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 14px 16px; border-bottom: 1px solid var(--line); background: rgba(0,0,0,0.15); }
+    header h1 { margin: 0; font-size: 16px; font-weight: 650; }
+    header p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.35; }
+
+    .wrap { display: grid; grid-template-columns: 380px 1fr; gap: 12px; padding: 12px; }
+    @media (max-width: 980px) { .wrap { grid-template-columns: 1fr; } }
+
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+    .panel h2 { margin: 0 0 10px; font-size: 14px; }
+    .row { display: grid; grid-template-columns: 1fr; gap: 8px; margin-bottom: 12px; }
+    label { font-size: 12px; color: var(--muted); }
+    input[type=file] { width: 100%; box-sizing: border-box; background: #0f1730; color: var(--text); border: 1px solid var(--line); padding: 8px; border-radius: 8px; }
+ input[type=text], input[type=date] { width: 100%; box-sizing: border-box; background: #0f1730; color: var(--text); border: 1px solid var(--line); padding: 8px; border-radius: 8px; }
+
+    .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .btn { background: var(--btn); border: 1px solid var(--line); color: var(--text); padding: 9px 10px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .btn:hover { background: var(--btnHover); }
+    .btn.full { grid-column: 1 / -1; }
+    .btn.primary { border-color: rgba(0,112,255,0.5); }
+    .btn.danger { border-color: rgba(255,42,42,0.45); }
+
+    .hint { font-size: 12px; color: var(--muted); line-height: 1.35; }
+
+    .mapWrap { background: #fff; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); position: relative; }
+    #mapHost { min-height: 72vh; padding: 0; overflow: hidden; }
+    .zoomHint { position: absolute; right: 10px; top: 10px; background: rgba(18,26,43,0.9); border: 1px solid var(--line); color: var(--text); padding: 6px 8px; border-radius: 8px; font-size: 12px; }
+
+    .toast { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+      background: rgba(18,26,43,0.98); border: 1px solid var(--line);
+      padding: 10px 12px; border-radius: 10px; font-size: 13px; color: var(--text);
+      max-width: min(760px, 92vw); display: none; }
+    .toast.show { display: block; }
+
+    .hr { height:1px; background: rgba(255,255,255,0.08); margin: 10px 0; }
+
+    .routeList{
+      max-height: 320px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      background: #0f1730;
+      border-radius: 8px;
+      padding: 6px;
+    }
+    .routeItem{
+      display:flex;
+      gap:10px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      cursor:pointer;
+      align-items:flex-start;
+    }
+    .routeItem:hover{ background: rgba(255,255,255,0.07); }
+    .routeItem.active{ background: rgba(0,112,255,0.12); outline: 1px solid rgba(0,112,255,0.35); }
+    .routeNo{ width: 44px; flex: 0 0 44px; font-weight: 750; color: #fff; }
+    .routeTxt{ flex: 1 1 auto; color: var(--text); font-size: 12px; line-height: 1.25; }
+
+    .pill { display:inline-block; padding: 2px 8px; border: 1px solid rgba(255,255,255,0.15); border-radius: 999px; margin: 2px 6px 2px 0; font-size: 12px; color: var(--text); background: rgba(255,255,255,0.05); }
+    .pill b { color: #fff; }
+  
+ .headerBar{display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;}
+ .headerBar label{display:block; font-size:12px; color: var(--muted); margin-bottom:6px;}
+ .headerBar input[type=file]{width:100%; box-sizing:border-box; background:#0f1730; color:var(--text); border:1px solid var(--line); padding:8px; border-radius:8px;}
+ @media (max-width: 980px){ .headerBar{grid-template-columns:1fr;} }
+
+/* --- Ortskenntnis (Tanklager-Attribut / inkscape:label) --- */
+.metaBlock { margin-top: 6px; padding: 8px; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; background: rgba(255,255,255,0.04); }
+.metaTitle { font-weight: 750; margin-bottom: 6px; }
+.metaBtns { display: flex; flex-wrap: wrap; gap: 8px; }
+.metaBtn {
+  background: rgba(0, 200, 90, 0.14);
+  border: 1px solid rgba(0, 200, 90, 0.45);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 650;
+  font-size: 12px;
+}
+.metaBtn:hover { background: rgba(0, 200, 90, 0.22); }
+.metaBtn.off {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.18);
+}
+.metaSmall { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.35; }
+
+/* --- App-Modus --- */
+header p{ display:none !important; }
+.zoomHint{ display:none !important; }
+
+/* Upload-Elemente komplett ausblenden (bleiben für JS als hidden Inputs vorhanden) */
+/* --- Layout: Vollhöhe --- */
+*,*::before,*::after{box-sizing:border-box;}
+html, body { height: 100%; }
+body { min-height: 100vh; display: flex; flex-direction: column; }
+header { flex: 0 0 auto; }
+.wrap { flex: 1 1 auto; min-height: 0; }
+.mapWrap { min-height: 0; height: 100%; }
+#mapHost { min-height: 0; height: 100%; }
+#svgObj{ width:100%; height:100%; display:block; border:0; }
+
+/* Unsichtbarer Fallback-Container */
+#hiddenFileInputs{ position:fixed; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden; }
+
+/* Force: Build/Status immer sichtbar */
+#buildId, #autoloadStatus { display:block !important; }
+
+/* iOS isolate map gestures */
+.mapWrap, #mapHost, #mapHost svg{
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.mapWrap{ overscroll-behavior: contain; }
+#mapHost{ overflow: hidden; }
+
+/* --- Header Layout (Variante A, Gruppen + Toggle) --- */
+header{ padding: 10px 12px; }
+.headerGrid{ display:grid; grid-template-columns: 1fr 2fr; gap:12px; align-items:start; }
+.headerLeft h1{ margin:0; font-size:16px; font-weight:650; }
+.headerLeft .hint{ margin-top:6px; }
+.headerRight{ display:grid; gap:10px; }
+.personRow{ display:grid; grid-template-columns: 1fr 1fr 160px; gap:8px; }
+.personRow input{ height: 36px; }
+
+.actionsBar{ display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; }
+.actionGroup{ border:1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.05); border-radius:12px; padding:8px; }
+.groupTitle{ font-size:12px; color: var(--muted); margin-bottom:6px; font-weight:650; }
+.groupBtns{ display:flex; gap:8px; }
+
+.iconBtn{ display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:44px; height:40px; padding:0 10px; border-radius:10px; }
+.iconBtn svg{ width:18px; height:18px; fill: currentColor; }
+
+/* Text standardmässig sichtbar (besser verständlich). Toggle kann auf Icons-only wechseln. */
+.btnTxt{ display:inline; font-weight:650; font-size:12px; }
+/* Farbcodes */
+.btnSave{ border-color: rgba(0,112,255,0.70); }
+.btnLoad{ border-color: rgba(0,200,90,0.60); }
+.btnShare{ border-color: rgba(140,90,255,0.60); }
+.btnBrowser{ border-color: rgba(255,255,255,0.18); }
+
+.modeToggle b{ color:#fff; }
+
+@media (max-width: 980px){
+  .headerGrid{ grid-template-columns: 1fr; }
+  .personRow{ grid-template-columns: 1fr 1fr; }
+  .personRow input[type=date]{ grid-column: 1 / -1; }
+}
+
+</style>
+
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="MEV Streckenkundekarten App" />
+  <meta name="theme-color" content="#0b1220" />
+
+</head>
+<body>
+
+<div id="hiddenFileInputs" aria-hidden="true">
+  <input id="svgFile" type="file" />
+  <input id="indexFile" type="file" accept="application/json,.json" />
+  <input id="stateFile" type="file" accept="application/json,.json" />
+</div>
+
+<header>
+  <div class="headerGrid">
+    <div class="headerLeft">
+      <h1>MEV Streckenkundekarten App</h1>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:13 UTC</div>
+      <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
+    </div>
+    <div class="headerRight">
+<div class="actionsBar"> 
+        <div class="actionGroup">
+          <div class="groupTitle">Datei</div>
+          <div class="groupBtns">
+            <button type="button" class="btn iconBtn btnSave" id="saveJson" title="Speichern (Datei)" aria-label="Speichern (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14l2 2v16H3V3h2zm2 2v6h10V5H7zm0 10v4h10v-4H7z"/></svg><span class="btnTxt">Speichern</span></button>
+            <button type="button" class="btn iconBtn btnLoad" id="loadJson" title="Laden (Datei)" aria-label="Laden (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H9v5H5v13h16V3zm-8 7V5h6v14H7V10h4zm1.5 3V9h-1v4H9.5L12 15.5 14.5 13H12.5z"/></svg><span class="btnTxt">Laden</span></button>
+            <button type="button" class="btn iconBtn btnShare" id="shareJson" title="Teilen…" aria-label="Teilen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 16a3 3 0 0 0-2.4 1.2L8.9 13.7a3.2 3.2 0 0 0 0-3.4l6.7-3.5A3 3 0 1 0 15 5a3 3 0 0 0 .1.7L8.4 9.2a3 3 0 1 0 0 5.6l6.7 3.5A3 3 0 1 0 18 16z"/></svg><span class="btnTxt">Teilen</span></button>
+          </div>
+        </div>
+
+        <div class="actionGroup">
+          <div class="groupTitle">Browser</div>
+          <div class="groupBtns">
+            <button type="button" class="btn iconBtn btnBrowser" id="saveBrowser" title="Speichern (Browser)" aria-label="Speichern (Browser)"><span class="btnTxt">Speichern</span></button>
+            <button type="button" class="btn iconBtn btnBrowser" id="loadBrowser" title="Laden (Browser)" aria-label="Laden (Browser)"><span class="btnTxt">Laden</span></button>
+          
+    </div>
+        </div>
+</div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panel">
+
+<h2>Personendaten</h2>
+<div class="row" id="personBlock">
+  <label>Vorname</label>
+  <input id="vorname" type="text" autocomplete="given-name" placeholder="Vorname" />
+  <label>Name</label>
+  <input id="nachname" type="text" autocomplete="family-name" placeholder="Name" />
+  <label>Datum</label>
+  <input id="datum" type="date" />
+  <div class="hint" id="metaHint" style="margin-top:6px;">Bitte Vorname, Name und Datum eintragen. Danach lädt die Karte automatisch.</div>
+</div>
+<div class="hr"></div>
+<h2>Strecke wählen & markieren</h2>
+    <div class="row">
+      <label>Auswahl</label>
+      <div id="selectedRoute" class="hint"></div>
+      <input type="hidden" id="lineSelect" value="" />
+  <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
+
+      <div class="btns" style="margin-top:8px;">
+        <button type="button" class="btn primary" id="lineBlue">Kundig (blau)</button>
+        <button type="button" class="btn danger" id="lineRed">Auffrischung (rot)</button>
+        <button type="button" class="btn full" id="lineOff">Linie entfernen</button>
+      </div>
+
+      <div class="btns" style="margin-top:8px;">
+        <button type="button" class="btn" id="resetView">Ansicht zurücksetzen</button>
+        <button type="button" class="btn" id="resetAll">Alles zurücksetzen</button>
+      </div>
+
+      <div class="row" style="margin-top:10px; margin-bottom:0;">
+        <label>Streckenliste</label>
+        <div id="routeList" class="routeList"></div>
+  <div id="ortskenntnisList" class="hint" style="margin-top:10px;"></div>
+</div>
+<div class="row" style="margin-top:10px; margin-bottom:0;">
+        <label>Aktive Linien</label>
+        <div id="activeLines" class="hint"></div>
+      </div>
+</div>
+</section>
+
+  <section class="mapWrap">
+    <div class="zoomHint">Zoom: Mausrad · Pan: Alt+Drag / Mitteltaste</div>
+    <div id="mapHost">
+      <div style="color:#111; font-family: system-ui; padding:12px;">
+        <b>SVG noch nicht geladen.</b><br>
+        Lade links deine SVG-Datei.
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+
+// === BOOTSTRAP_APP_V9 ===================================================
+(function(){
+  const st = document.getElementById('autoloadStatus');
+  const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
+  window.addEventListener('error', (ev) => { try{ setStatus('JS-Fehler: ' + (ev && ev.message ? ev.message : ev)); }catch(e){} });
+  window.addEventListener('unhandledrejection', (ev) => { try{ setStatus('Promise-Fehler: ' + (ev && ev.reason ? (ev.reason.message || ev.reason) : ev)); }catch(e){} });
+  setStatus('warte auf Personendaten …');
+})();
+
+  let svgRoot = null;
+
+  let indexData = {
+    colors: {
+      station: { kundig: "#0070ff", unkundig: "#ff2a2a", neutral: "neutral" },
+      unoccupied_station: { kundig: "#8bbcff", unkundig: "#ff7a7a", neutral: "neutral" }
+    },
+    availableLines: ["101", "102", "111", "121", "141", "142", "151", "161", "171", "201", "202", "203", "211", "221", "222", "231", "232", "241", "251", "252", "254", "255", "261", "271", "272", "273", "281", "282", "291", "292", "301", "311", "321", "322", "331", "332", "341", "351", "361", "362", "371", "372", "381", "391", "411", "421", "422", "431", "436", "453", "461", "462", "481", "482", "483", "484", "491", "493", "501", "502", "511", "521", "531", "532", "533", "541", "542", "551", "552", "601", "602", "611", "612", "631", "632", "635", "636", "641", "642", "651", "652", "661", "701", "702", "711", "721", "731", "732", "741", "742", "751", "752", "753", "754", "761", "771", "772", "781", "782", "791"],
+    routes: {"101": "Genève Aéroport - La Plaine - Genève - Genève-La-Praille", "102": "Annemasse - Genève", "111": "La-Praille / Genève-Aéroport - Nyon / Nyon - Lausanne", "121": "Lausanne - Fribourg/Freiburg - Laupen - Bern", "141": "Bern - Burgdorf - Olten", "142": "Bern - Solothurn - NBS - Olten", "151": "Olten - Lenzburg - RBL - Brugg", "161": "Brugg - Zürich Altstetten - Zürich HB", "171": "Wettingen - RBL - Würenlos - Seebach - Zürich Oerlikon - Opfikon Süd - Glattbrugg", "201": "Vallorbe - Lausanne - Lausanne Triage", "202": "Vallorbe - Le Brassus", "203": "Orbe - Chavornay", "211": "Lausanne - Aigle - Sion", "221": "Sion - Brig - Domo", "222": "Brig - Domo - Domo II", "231": "Puidoux - Vevey", "232": "St-Gingolph - St-Maurice", "241": "Lausanne-Tr - Lausanne - Sébeillon - Lausanne", "251": "Palézieux - Payerne", "252": "Payerne - Lyss - Büren a. A.", "254": "Broc-Chocolaterie - Romont FR", "255": "Fribourg/Freiburg - Murten/Morat - Ins - Neuchâtel", "261": "Yverdon - Fribourg/Freiburg", "271": "Pontarlier - Neuchâtel", "272": "Le Locle-Col-des-Roches - Neuchâtel", "273": "Travers - Fleurier - Buttes", "281": "La Chaux-de-Fonds - Biel Produktionsanlage Ost", "282": "Moutier - Tavannes - Biel Produktionsanlage Ost", "291": "Delémont - Lengnau - Biel/Bienne", "292": "Delle - Delémont", "301": "Lausanne Triage - Lausanne - Biel Produktionsanlage Ost", "311": "Biel/Bienne - Oensingen - Olten", "321": "BIPO - Biel/Bienne - Bern W'haus", "322": "Bern W'haus - Bern - Thun - Reichenbach", "331": "Bern W'haus - Bern - Langnau", "332": "Langnau - Luzern", "341": "Basel RB - Basel SBB - Delémont", "351": "Reichenbach i/K - Kandersteg - Brig", "361": "Spiez - Interlaken Ost", "362": "Spiez - Zweisimmen", "371": "Bern - Belp - Thun", "372": "Bern - Schwarzenburg", "381": "Bern - Neuchâtel", "391": "Reichenbach i/K - LBS - Visp", "411": "Basel SBB - Gelterkinden - Olten", "421": "Sissach - Läufelfingen - Olten", "422": "Olten RB - Rothrist - Luzern", "431": "Luzern - Lenzburg", "436": "Zofingen - Suhr - Wettingen", "453": "Luzern - Horw (Normalspur)", "461": "Zug - Luzern", "462": "Thalwil - Arth-Goldau", "481": "Solothurn - Moutier", "482": "Solothurn - Burgdorf", "483": "Burgdorf - Langnau i.E", "484": "Burgdorf - Thun", "491": "Ramsei - Sumiswald-Grünen", "493": "Langenthal - Wolhusen", "501": "Basel St. Johann - Basel GB - Pratteln", "502": "Basel Kleinhüningen Hafen - Basel SBB / Basel Bad Bf - Basel RB / Birsfelden Hafen - Basel RB", "511": "Basel SBB - Brugg", "521": "Brugg - Brugg Nord - Lenzburg - Rotkreuz", "531": "Rotkreuz - Göschenen", "532": "Luzern - Meggen - Arth-Goldau", "533": "Altdorf - GBT - Bellinzona", "541": "Göschenen - Bellinzona", "542": "Bellinzona - Chiasso Vg / SM - LgV - Stabio", "551": "Bellinzona - Locarno", "552": "Bellinzona - Luino", "601": "Stein-S. - Laufenburg - RBL - Wettingen - Koblenz", "602": "Koblenz - Winterthur", "611": "Schaffhausen - Bülach - Zürich Oerlikon", "612": "Niederweningen - Oberglatt", "631": "Zürich - Thalwil - Pfäffikon", "632": "Zug - Affoltern a. A. - Altstetten", "635": "Zürich Wiedikon - Sihlbrugg", "636": "Zürich - Uetliberg", "641": "Pfäffikon SZ - Sargans", "642": "Buchs - Chur", "651": "Zürich - Meilen - Rapperswil", "652": "Zürich Oerlikon - Zürich - Uster - Rapperswil", "661": "Zürich - Stettbach - Effretikon - Hinwil", "701": "Zürich Altstetten - Zürich - Zürich Oerlikon", "702": "Zürich Oerlikon - Winterthur", "711": "Winterthur - St. Gallen St. Fiden", "721": "St.Gallen - Rorschach - Buchs", "731": "Schaffhausen - Winterthur", "732": "Winterthur - Etzwilen", "741": "Winterthur - Romanshorn", "742": "Sulgen - Gossau SG", "751": "Rapperswil SG - Linthal", "752": "Pfäffikon SZ - Wattwil", "753": "Nesslau - Wattwil - Wil", "754": "Winterthur - Wald - Rapperswil", "761": "Konstanz - Wil", "771": "Schaffhausen - Kreuzlingen", "772": "Konstanz - Kreuzlingen - Rorschach", "781": "Pfäffikon SZ - Arth-Goldau", "782": "Wädenswil - Einsiedeln", "791": "Wattwil - St.Gallen - Romanshorn"}
+  };
+
+  let selection = {
+    activeLines: {},
+    lineOrder: [],
+    overrides: {}
+  };
+
+  let view = {
+    base: null,
+    cur: null,
+    panning: false,
+    panStart: null,
+    panViewStart: null
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+// === iOS: Tap auf sichtbaren <path> -> Marker-Element finden (data-typ/data-type) ===
+function findPointFromTarget(t){
+  if (!t) return null;
+  let el = t;
+  for (let k=0; k<12 && el; k++){
+    if (el.getAttribute && (el.getAttribute('data-typ') || el.getAttribute('data-type'))) return el;
+    el = el.parentElement;
+  }
+  let sib = t.previousElementSibling;
+  for (let k=0; k<10 && sib; k++){
+    if (sib.getAttribute && (sib.getAttribute('data-typ') || sib.getAttribute('data-type'))) return sib;
+    sib = sib.previousElementSibling;
+  }
+  if (t.parentElement){
+    sib = t.parentElement.previousElementSibling;
+    for (let k=0; k<10 && sib; k++){
+      if (sib.getAttribute && (sib.getAttribute('data-typ') || sib.getAttribute('data-type'))) return sib;
+      sib = sib.previousElementSibling;
+    }
+  }
+  return null;
+}
+
+// === iOS: Pinch-Zoom + 1-Finger-Pan (nur SVG) + Tap (ohne click-Abhängigkeit) ===
+function enableTouchGestures(){
+  if (!svgRoot) return;
+
+  let mode = 'none';
+  let pan = null;   // {x,y,vb,target,t}
+  let pinch = null; // {dist,vb}
+  let moved = 0;
+
+  function dist(a,b){
+    const dx = a.clientX - b.clientX;
+    const dy = a.clientY - b.clientY;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+
+  function clientToSvgXY(cx, cy){
+    const pt = svgRoot.createSVGPoint();
+    pt.x = cx; pt.y = cy;
+    const ctm = svgRoot.getScreenCTM();
+    if (!ctm) return {x:0,y:0};
+    const sp = pt.matrixTransform(ctm.inverse());
+    return {x: sp.x, y: sp.y};
+  }
+
+  svgRoot.addEventListener('touchstart', (e)=>{
+    if (!view.cur || !view.base) return;
+    moved = 0;
+
+    if (e.touches.length === 1){
+      mode = 'pan';
+      const t = e.touches[0];
+      pan = { x: t.clientX, y: t.clientY, vb: { ...view.cur }, target: e.target, t: Date.now() };
+      pinch = null;
+    } else if (e.touches.length >= 2){
+      mode = 'pinch';
+      pinch = { dist: dist(e.touches[0], e.touches[1]), vb: { ...view.cur } };
+      pan = null;
+      moved = 20;
+    }
+    e.preventDefault();
+  }, {passive:false});
+
+  svgRoot.addEventListener('touchmove', (e)=>{
+    if (!view.cur || !view.base) return;
+
+    if (mode === 'pan' && pan && e.touches.length === 1){
+      const t = e.touches[0];
+      const dx = t.clientX - pan.x;
+      const dy = t.clientY - pan.y;
+      moved = Math.max(moved, Math.abs(dx) + Math.abs(dy));
+
+      const rect = svgRoot.getBoundingClientRect();
+      const sx = pan.vb.w / rect.width;
+      const sy = pan.vb.h / rect.height;
+
+      setViewBox({ x: pan.vb.x - dx*sx, y: pan.vb.y - dy*sy, w: pan.vb.w, h: pan.vb.h });
+    }
+
+    if (mode === 'pinch' && pinch && e.touches.length >= 2){
+      const d = dist(e.touches[0], e.touches[1]);
+      if (d <= 0) return;
+      const scale = pinch.dist / d;
+
+      const vb0 = pinch.vb;
+      const nw = vb0.w * scale;
+      const nh = vb0.h * scale;
+      const minW = view.base.w * 0.02;
+      const maxW = view.base.w * 20;
+      if (nw < minW || nw > maxW) return;
+
+      const mx = (e.touches[0].clientX + e.touches[1].clientX)/2;
+      const my = (e.touches[0].clientY + e.touches[1].clientY)/2;
+      const mid = clientToSvgXY(mx, my);
+
+      const nx = mid.x - (mid.x - vb0.x) * (nw / vb0.w);
+      const ny = mid.y - (mid.y - vb0.y) * (nh / vb0.h);
+
+      setViewBox({ x: nx, y: ny, w: nw, h: nh });
+      moved = Math.max(moved, 20);
+    }
+
+    e.preventDefault();
+  }, {passive:false});
+
+  svgRoot.addEventListener('touchend', (e)=>{
+    try{
+      if (mode === 'pan' && pan){
+        const dt = Date.now() - pan.t;
+        const wasTap = (moved < 10) && (dt < 350);
+        if (wasTap){
+          const pt = findPointFromTarget(pan.target);
+          if (pt && isPoint(pt)) {
+            const id = pt.id;
+            if (id){
+              const baseStatus = getLineStatusForElement(pt);
+              const cur = selection.overrides[id] || '';
+              let next = 'kundig';
+              if (cur === '') next = 'kundig';
+              else if (cur === 'kundig') next = 'unkundig';
+              else if (cur === 'unkundig') next = 'neutral';
+              else if (cur === 'neutral') next = '';
+              if (next === '') delete selection.overrides[id];
+              else selection.overrides[id] = next;
+              applySelection();
+              renderActiveLines();
+              const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
+              toast(`${id}: ${msg}`);
+            }
+          }
+        }
+      }
+    } catch(e) {}
+
+    if (e.touches.length === 0){
+      mode = 'none';
+      pan = null;
+      pinch = null;
+      moved = 0;
+    }
+    e.preventDefault();
+  }, {passive:false});
+}
+
+  function toast(msg) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 3200);
+  }
+
+  function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result || ""));
+      r.onerror = () => reject(r.error);
+      r.readAsText(file);
+    });
+  }
+
+  function normalizeLine(v) {
+    return String(v ?? "").replace(/\D+/g, "");
+  }
+
+  function getPointType(el) {
+    const raw = (el.getAttribute("data-typ") || el.getAttribute("data-type") || "").trim().toLowerCase();
+    if (raw === "station") return "station";
+    if (raw === "unoccupied_station") return "unoccupied_station";
+    return "";
+  }
+
+  function isPoint(el) {
+    const t = getPointType(el);
+    return t === "station" || t === "unoccupied_station";
+  }
+
+  function matchesAnyLine(el, lineDigits) {
+    const target = normalizeLine(lineDigits);
+    if (!target) return false;
+    for (const attr of el.getAttributeNames()) {
+      if (!attr.startsWith("data-line")) continue;
+      const v = normalizeLine(el.getAttribute(attr));
+      if (v && v === target) return true;
+    }
+    return false;
+  }
+
+  function ensureOrig(el) {
+    if (el.dataset.origFill === undefined) el.dataset.origFill = el.getAttribute("fill") ?? "";
+    if (el.dataset.origStroke === undefined) el.dataset.origStroke = el.getAttribute("stroke") ?? "";
+    if (el.dataset.origFillOpacity === undefined) el.dataset.origFillOpacity = el.getAttribute("fill-opacity") ?? "";
+    if (el.dataset.origStrokeOpacity === undefined) el.dataset.origStrokeOpacity = el.getAttribute("stroke-opacity") ?? "";
+  }
+
+  function restoreOrig(el) {
+    if (el.dataset.origFill !== "") el.setAttribute("fill", el.dataset.origFill); else el.removeAttribute("fill");
+    if (el.dataset.origStroke !== "") el.setAttribute("stroke", el.dataset.origStroke); else el.removeAttribute("stroke");
+    if (el.dataset.origFillOpacity !== "") el.setAttribute("fill-opacity", el.dataset.origFillOpacity); else el.removeAttribute("fill-opacity");
+    if (el.dataset.origStrokeOpacity !== "") el.setAttribute("stroke-opacity", el.dataset.origStrokeOpacity); else el.removeAttribute("stroke-opacity");
+    el.style.fill = "";
+    el.style.stroke = "";
+    el.style.fillOpacity = "";
+    el.style.strokeOpacity = "";
+  }
+
+  function setVisual(el, status) {
+    ensureOrig(el);
+    el.setAttribute("data-status", status);
+    const type = getPointType(el) || "station";
+    const palette = indexData.colors && indexData.colors[type] ? indexData.colors[type] : null;
+    const col = palette ? palette[status] : null;
+    if (!col || col === "neutral") {
+      restoreOrig(el);
+      return;
+    }
+    el.style.fill = col;
+    el.style.fillOpacity = "1";
+    if (type === "station") {
+      el.style.stroke = col;
+      el.style.strokeOpacity = "1";
+    } else {
+      el.style.stroke = el.dataset.origStroke || "#000";
+      el.style.strokeOpacity = "0.7";
+    }
+  }
+
+  function touchLineOrder(line) {
+    const idx = selection.lineOrder.indexOf(line);
+    if (idx !== -1) selection.lineOrder.splice(idx, 1);
+    selection.lineOrder.push(line);
+  }
+
+  function getLineStatusForElement(el) {
+  let hasKundig = false;
+  let hasUnkundig = false;
+  for (const line of selection.lineOrder) {
+    const st = selection.activeLines[line];
+    if (!st) continue;
+    if (!matchesAnyLine(el, line)) continue;
+    if (st === 'kundig') { hasKundig = true; break; }
+    if (st === 'unkundig') hasUnkundig = true;
+  }
+  if (hasKundig) return 'kundig';
+  if (hasUnkundig) return 'unkundig';
+  return 'neutral';
+}
+
+  function getLabelForEl(el) {
+    return (el.getAttribute('inkscape:label') || el.getAttribute('aria-label') || el.getAttribute('data-label') || el.id || '').trim();
+  }
+
+// --- Ortskenntnis: liest bevorzugt Attribut "Tanklager" (Wert dahinter), sonst aus inkscape:label ---
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function extractOrtskenntnisFromElement(el) {
+  if (!el) return '';
+  // 1) eigenes SVG-Attribut: Tanklager="Niederglatt"
+  let v = String(el.getAttribute('Tanklager') || el.getAttribute('tanklager') || '').trim();
+  if (v) return v;
+
+  // 2) Label-Muster: "Tanklager: Niederglatt"
+  const raw = String(getLabelForEl(el) || '').trim();
+  let m = raw.match(/^tanklager\s*:\s*(.+)$/i);
+  if (m) return m[1].trim();
+
+  // 3) Label-Muster: "Tanklager_Niederglatt" oder "Tanklager-Niederglatt"
+  m = raw.match(/^tanklager[_\-\s]+(.+)$/i);
+  if (m) return m[1].trim();
+
+  return '';
+}
+
+function getOrtskenntnisPointsForLine(line) {
+  if (!svgRoot) return [];
+  const targetLine = normalizeLine(line);
+  const out = [];
+  svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(el => {
+    if (!isPoint(el)) return;
+    if (!el.id) return;
+    if (!matchesAnyLine(el, targetLine)) return;
+    const ort = extractOrtskenntnisFromElement(el);
+    if (!ort) return;
+    out.push({ id: el.id, ort: ort });
+  });
+  const seen = new Set();
+  return out.filter(x => (seen.has(x.id) ? false : (seen.add(x.id), true)));
+}
+
+function renderMetaForSelectedLine() {
+  const host = $('metaForSelectedLine');
+  if (!host) return;
+  const line = $('lineSelect').value;
+  if (!line || !svgRoot) { host.innerHTML = ''; return; }
+  const lineStatus = selection.activeLines[line] || '';
+  if (lineStatus !== 'kundig') { host.innerHTML = ''; return; }
+  const points = getOrtskenntnisPointsForLine(line);
+  if (!points.length) { host.innerHTML = ''; return; }
+  const btns = points.map(p => {
+    const isNeutral = (selection.overrides && selection.overrides[p.id] === 'neutral');
+    const cls = isNeutral ? 'metaBtn off' : 'metaBtn';
+    const title = isNeutral ? 'Ist neutral (Override). Klick entfernt Override.' : 'Klick setzt neutral (Override).';
+    return `<button type=\"button\" class="${cls}" data-point-id="${p.id}" title="${title}">${escapeHtml(p.ort)}</button>`;
+  }).join('');
+  host.innerHTML = `
+    <div class="metaBlock">
+      <div class="metaTitle">Ortskenntnis</div>
+      <div class="metaBtns">${btns}</div>
+      <div class="metaSmall">Klick auf einen Knopf: Punkt wird neutral (Override). Linie bleibt kundig, gilt aber als nicht vollständig.</div>
+    </div>
+  `;
+  host.querySelectorAll('button[data-point-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-point-id');
+      if (!id) return;
+      const cur = selection.overrides[id] || '';
+      if (cur === 'neutral') delete selection.overrides[id];
+      else selection.overrides[id] = 'neutral';
+      applySelection();
+      renderActiveLines();
+      renderMetaForSelectedLine();
+      renderOrtskenntnisList();
+      toast(`${id}: ${selection.overrides[id] ? 'neutral' : 'Linie'}`);
+    });
+  });
+}
+
+function renderOrtskenntnisList() {
+  const host = $('ortskenntnisList');
+  if (!host) return;
+  if (!svgRoot) { host.innerHTML = ''; return; }
+  const kundigLines = (selection.lineOrder || []).filter(l => selection.activeLines && selection.activeLines[l] === 'kundig');
+  if (!kundigLines.length) { host.innerHTML = ''; return; }
+  const blocks = [];
+  kundigLines.forEach(line => {
+    const pts = getOrtskenntnisPointsForLine(line);
+    if (!pts.length) return;
+    const title = (indexData.routes && indexData.routes[line]) ? `${line} ${escapeHtml(indexData.routes[line])}` : String(line);
+    const btns = pts.map(p => {
+      const isNeutral = (selection.overrides && selection.overrides[p.id] === 'neutral');
+      const cls = isNeutral ? 'metaBtn off' : 'metaBtn';
+      const t = isNeutral ? 'Ist neutral (Override). Klick entfernt Override.' : 'Klick setzt neutral (Override).';
+      return `<button type=\"button\" class="${cls}" data-point-id="${p.id}" title="${t}" data-line="${line}">${escapeHtml(p.ort)}</button>`;
+    }).join('');
+    blocks.push(`
+      <div class="metaBlock">
+        <div class="metaTitle">Ortskenntnis · ${title}</div>
+        <div class="metaBtns">${btns}</div>
+      </div>
+    `);
+  });
+  if (!blocks.length) { host.innerHTML = ''; return; }
+  host.innerHTML = blocks.join('');
+  host.querySelectorAll('button[data-point-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-point-id');
+      if (!id) return;
+      const cur = selection.overrides[id] || '';
+      if (cur === 'neutral') delete selection.overrides[id];
+      else selection.overrides[id] = 'neutral';
+      applySelection();
+      renderActiveLines();
+      renderMetaForSelectedLine();
+      renderOrtskenntnisList();
+      toast(`${id}: ${selection.overrides[id] ? 'neutral' : 'Linie'}`);
+    });
+  });
+}
+
+  function getNeutralOverrideLabelsForLine(line) {
+    if (!svgRoot) return [];
+    const labels = [];
+    svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(el => {
+      if (!isPoint(el)) return;
+      if (!el.id) return;
+      if (!matchesAnyLine(el, line)) return;
+      if (selection.overrides[el.id] !== 'neutral') return;
+      const lbl = getLabelForEl(el);
+      if (lbl) labels.push(lbl);
+    });
+    return Array.from(new Set(labels));
+  }
+
+  function renderActiveLines() {
+    const host = $("activeLines");
+    if (!host) return;
+
+    const items = selection.lineOrder
+      .filter(l => selection.activeLines[l])
+      .map(l => ({ line: l, status: selection.activeLines[l] }));
+
+    if (!items.length) {
+      host.innerHTML = '<span class="hint">Keine.</span>';
+      return;
+    }
+
+    host.innerHTML = items.map(it => {
+      const col = (it.status === 'kundig') ? '#0070ff' : (it.status === 'unkundig' ? '#ff2a2a' : '#999');
+      const txt = (it.status === 'kundig') ? 'kundig' : (it.status === 'unkundig' ? 'auffrischung' : 'neutral');
+      const labels = getNeutralOverrideLabelsForLine(it.line);
+      const incomplete = labels.length > 0;
+      const dotCol = incomplete ? '#000' : col;
+      const borderCol = incomplete ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.15)';
+      const extra = incomplete ? ' · nicht vollständig' : '';
+      const detail = incomplete ? ('<div class="hint" style="margin-top:4px;">' + labels.map(t => '<s>' + t.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</s>').join(', ') + '</div>') : '';
+      return `<span class="pill" title="${it.line}" style="border-color:${borderCol}"><b style="color:${dotCol}">●</b> ${it.line} (${txt}${extra})</span>${detail}`;
+    }).join(' ');
+  }
+
+  function applySelection() {
+    if (!svgRoot) return;
+    svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(el => {
+      if (!isPoint(el)) return;
+      let status = getLineStatusForElement(el);
+      if (selection.overrides[el.id]) status = selection.overrides[el.id];
+      setVisual(el, status);
+    });
+  
+  renderOrtskenntnisList();
+}
+
+  function setSelectedLineUi(line) {
+    $("lineSelect").value = line || '';
+    $("routeList").querySelectorAll('.routeItem').forEach(x => {
+      x.classList.toggle('active', x.dataset.line === line);
+    });
+    const txt = indexData.routes && indexData.routes[line] ? indexData.routes[line] : '';
+    $("selectedRoute").textContent = line ? (`Auswahl: ${line} ${txt}`) : '';
+  
+  renderOrtskenntnisList();
+}
+
+  function rebuildRouteList() {
+    const host = $("routeList");
+    host.innerHTML = '';
+    const lines = Array.isArray(indexData.availableLines) ? indexData.availableLines.slice() : [];
+    lines.sort((a,b) => Number(a) - Number(b));
+
+    for (const line of lines) {
+      const row = document.createElement('div');
+      row.className = 'routeItem';
+      row.dataset.line = line;
+
+      const no = document.createElement('div');
+      no.className = 'routeNo';
+      no.textContent = line;
+
+      const tx = document.createElement('div');
+      tx.className = 'routeTxt';
+      tx.textContent = indexData.routes && indexData.routes[line] ? indexData.routes[line] : '';
+
+      row.appendChild(no);
+      row.appendChild(tx);
+
+      row.addEventListener('click', () => {
+        setSelectedLineUi(line);
+        toast(`Linie gewählt: ${line}`);
+      });
+
+      host.appendChild(row);
+    }
+
+    const cur = $("lineSelect").value;
+    if (cur) setSelectedLineUi(cur);
+  }
+
+  function enablePointClickCycle() {
+ if (!svgRoot) return;
+ svgRoot.addEventListener('click', (ev) => {
+   const pt = findPointFromTarget(ev.target);
+   if (!pt || !isPoint(pt)) return;
+   const id = pt.id;
+   if (!id) return;
+
+   const baseStatus = getLineStatusForElement(pt);
+   const cur = selection.overrides[id] || '';
+   let next = 'kundig';
+   if (cur === '') next = 'kundig';
+   else if (cur === 'kundig') next = 'unkundig';
+   else if (cur === 'unkundig') next = 'neutral';
+   else if (cur === 'neutral') next = '';
+
+   if (next === '') delete selection.overrides[id];
+   else selection.overrides[id] = next;
+
+   applySelection();
+   renderActiveLines();
+   const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
+   toast(`${id}: ${msg}`);
+   ev.stopPropagation();
+ });
+}
+
+  function getInitialViewBox(svg) {
+    const vb = svg.getAttribute('viewBox');
+    if (vb) {
+      const parts = vb.trim().split(/\s+|,/).map(Number);
+      if (parts.length === 4 && parts.every(n => Number.isFinite(n))) {
+        return { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
+      }
+    }
+    let w = Number(svg.getAttribute('width'));
+    let h = Number(svg.getAttribute('height'));
+    if (!(w > 0 && h > 0)) {
+      try {
+        const bb = svg.getBBox();
+        return { x: bb.x, y: bb.y, w: bb.width || 1000, h: bb.height || 1000 };
+      } catch {
+        return { x: 0, y: 0, w: 1000, h: 1000 };
+      }
+    }
+    return { x: 0, y: 0, w: w, h: h };
+  }
+
+  function setViewBox(vb) {
+    if (!svgRoot) return;
+    svgRoot.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+    view.cur = vb;
+  }
+
+  function clientToSvgPoint(evt) {
+    const pt = svgRoot.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    const ctm = svgRoot.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    const sp = pt.matrixTransform(ctm.inverse());
+    return { x: sp.x, y: sp.y };
+  }
+
+  function enableWheelZoom() {
+    svgRoot.addEventListener('wheel', (evt) => {
+      evt.preventDefault();
+      if (!view.cur || !view.base) return;
+      const zoomFactor = Math.exp(evt.deltaY * 0.0015);
+      const p = clientToSvgPoint(evt);
+      const vb = { ...view.cur };
+      const nx = p.x - (p.x - vb.x) * zoomFactor;
+      const ny = p.y - (p.y - vb.y) * zoomFactor;
+      const nw = vb.w * zoomFactor;
+      const nh = vb.h * zoomFactor;
+      const minW = view.base.w * 0.02;
+      const maxW = view.base.w * 20;
+      if (nw < minW || nw > maxW) return;
+      setViewBox({ x: nx, y: ny, w: nw, h: nh });
+    }, { passive: false });
+  }
+
+  function enablePanHandlers() {
+    svgRoot.addEventListener('pointerdown', (evt) => {
+      const panAllowed = evt.altKey || evt.button === 1;
+      if (!panAllowed) return;
+      evt.preventDefault();
+      view.panning = true;
+      view.panStart = { x: evt.clientX, y: evt.clientY };
+      view.panViewStart = { ...view.cur };
+      try { svgRoot.setPointerCapture(evt.pointerId); } catch {}
+    });
+
+    svgRoot.addEventListener('pointermove', (evt) => {
+      if (!view.panning) return;
+      evt.preventDefault();
+      const dx = evt.clientX - view.panStart.x;
+      const dy = evt.clientY - view.panStart.y;
+      const rect = svgRoot.getBoundingClientRect();
+      const sx = view.panViewStart.w / rect.width;
+      const sy = view.panViewStart.h / rect.height;
+      setViewBox({
+        x: view.panViewStart.x - dx * sx,
+        y: view.panViewStart.y - dy * sy,
+        w: view.panViewStart.w,
+        h: view.panViewStart.h
+      });
+    });
+
+    function endPan(evt) {
+      if (!view.panning) return;
+      view.panning = false;
+      try { svgRoot.releasePointerCapture(evt.pointerId); } catch {}
+    }
+
+    svgRoot.addEventListener('pointerup', endPan);
+    svgRoot.addEventListener('pointercancel', endPan);
+  }
+
+  function resetView() {
+    if (!view.base) return;
+    setViewBox({ ...view.base });
+    toast('Ansicht zurückgesetzt.');
+  }
+
+  function embedSvg(svgText) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    const parseError = doc.querySelector('parsererror');
+    if (parseError) {
+      toast('SVG konnte nicht geladen werden (Parse-Fehler).');
+      console.error(parseError.textContent || 'SVG Parse-Fehler');
+      return;
+    }
+    const svg = doc.querySelector('svg');
+    if (!svg) {
+      toast('Keine <svg>-Wurzel gefunden.');
+      return;
+    }
+
+    const mapHost = $('mapHost');
+    mapHost.innerHTML = '';
+    const imported = document.importNode(svg, true);
+    imported.style.width = '100%';
+    imported.style.height = '100%';
+    imported.style.display = 'block';
+    imported.style.maxWidth = '100%';
+    mapHost.appendChild(imported);
+    svgRoot = imported;
+
+    view.base = getInitialViewBox(svgRoot);
+    setViewBox({ ...view.base });
+
+    rebuildRouteList();
+    enablePointClickCycle();
+    enablePanHandlers();
+    enableWheelZoom();
+ enableTouchGestures();
+
+    applySelection();
+    renderActiveLines();
+
+    toast('SVG geladen.');
+  
+  renderOrtskenntnisList();
+}
+
+  function setSelectedLineStatus(status) {
+  const line = $('lineSelect').value;
+  if (!line) { toast('Bitte zuerst eine Strecke in der Liste wählen.'); return; }
+  const prev = selection.activeLines[line];
+selection.activeLines[line] = status;
+  touchLineOrder(line);
+  applySelection();
+  renderActiveLines();
+
+  renderOrtskenntnisList();
+}
+
+  function removeSelectedLine() {
+    const line = $('lineSelect').value;
+    if (!line) { toast('Bitte zuerst eine Strecke in der Liste wählen.'); return; }
+    delete selection.activeLines[line];
+    const idx = selection.lineOrder.indexOf(line);
+    if (idx !== -1) selection.lineOrder.splice(idx, 1);
+    applySelection();
+    renderActiveLines();
+    toast(`Linie ${line} entfernt.`);
+  
+  renderOrtskenntnisList();
+}
+
+  function resetAll() {
+    selection.activeLines = {};
+    selection.lineOrder = [];
+    selection.overrides = {};
+    setSelectedLineUi('');
+    applySelection();
+    renderActiveLines();
+    toast('Alles zurückgesetzt.');
+  
+  renderOrtskenntnisList();
+}
+
+  $('svgFile').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const txt = await readFileAsText(f);
+    embedSvg(txt);
+  });
+
+  $('indexFile').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    try {
+      const txt = await readFileAsText(f);
+      const obj = JSON.parse(txt);
+      if (obj.colors) indexData.colors = obj.colors;
+      if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
+      if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
+      toast('Index geladen.');
+      rebuildRouteList();
+      applySelection();
+      renderActiveLines();
+    } catch (err) {
+      console.error(err);
+      toast('Index konnte nicht gelesen werden (JSON ungültig?).');
+    }
+  });
+
+  $('lineBlue').addEventListener('click', () => setSelectedLineStatus('kundig'));
+  $('lineRed').addEventListener('click', () => setSelectedLineStatus('unkundig'));
+  $('lineOff').addEventListener('click', removeSelectedLine);
+  $('resetAll').addEventListener('click', resetAll);
+  $('resetView').addEventListener('click', resetView);
+
+  
+
+// --- Personendaten / Speichern / Mail ---
+function todayISO() {
+  var d = new Date();
+  var z = function(n){ return (n < 10 ? '0' : '') + String(n); };
+  return d.getFullYear() + '-' + z(d.getMonth()+1) + '-' + z(d.getDate());
+}
+function getMeta() {
+  var n = $('nachname') ? String($('nachname').value || '').trim() : '';
+  var v = $('vorname') ? String($('vorname').value || '').trim() : '';
+  var dt = $('datum') ? String($('datum').value || '').trim() : '';
+  return { nachname: n, vorname: v, datum: dt };
+}
+function safeFilePart(s) {
+  return String(s || '')
+    .replace(/[^a-zA-Z0-9\-_. ]/g, '')
+    .trim()
+    .replace(/\s+/g, '_');
+}
+
+// --- Export Zusatzfelder (Labels & Status pro Code) ---
+function buildStationLabelMap() {
+  var labels = {};
+  var idsByCode = {};
+  if (!svgRoot) return { labels: labels, idsByCode: idsByCode };
+  try {
+    svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(function(el){
+      if (!isPoint(el)) return;
+      var code = String(el.getAttribute('data-code') || '').trim().toUpperCase();
+      if (!code) return;
+      var lbl = String(el.getAttribute('inkscape:label') || '').trim();
+      if (!lbl && typeof getLabelForEl === 'function') lbl = String(getLabelForEl(el) || '').trim();
+      if (!lbl) lbl = code;
+      if (!labels[code]) labels[code] = lbl;
+      if (!idsByCode[code] && el.id) idsByCode[code] = el.id;
+    });
+  } catch (e) {}
+  return { labels: labels, idsByCode: idsByCode };
+}
+
+// Detailstatus wie im Viewer (kundig / unkundig / neutral)
+function buildStationStatusByCodeDetailed() {
+  var map = {};
+  if (!svgRoot) return map;
+  try {
+    svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(function(el){
+      if (!isPoint(el)) return;
+      var code = String(el.getAttribute('data-code') || '').trim().toUpperCase();
+      if (!code) return;
+      var st = getLineStatusForElement(el);
+      if (selection.overrides && el.id && selection.overrides[el.id]) st = selection.overrides[el.id];
+      if (st !== 'kundig' && st !== 'unkundig' && st !== 'neutral') st = 'neutral';
+      map[code] = st;
+    });
+  } catch (e) {}
+  return map;
+}
+
+// BLS-Binärstatus: nur 'kundig' zählt, alles andere wird 'nicht_kundig'
+function buildStationStatusByCodeBls() {
+  var det = buildStationStatusByCodeDetailed();
+  var out = {};
+  try {
+    Object.keys(det).forEach(function(code){
+      out[code] = (det[code] === 'kundig') ? 'kundig' : 'nicht_kundig';
+    });
+  } catch (e) {}
+  return out;
+}
+function getExportPayload() {
+  var meta = getMeta();
+  var active = {};
+  for (var i = 0; i < selection.lineOrder.length; i++) {
+    var line = selection.lineOrder[i];
+    if (selection.activeLines[line]) active[line] = selection.activeLines[line];
+  }
+
+  // Overrides: technisch bleibt id->status (für zuverlässiges Wiederherstellen).
+  // Zusätzlich: overrideItems mit label/data-code/data-line* für Lesbarkeit/Abgleich.
+  var overrides = selection.overrides || {};
+  var overrideItems = [];
+  try {
+    var ids = Object.keys(overrides);
+    ids.sort();
+    for (var k = 0; k < ids.length; k++) {
+      var id = ids[k];
+      var st = overrides[id];
+      var labelRaw = '';
+      var label = '';
+      var dataCode = '';
+      var dataLines = [];
+      try {
+        if (svgRoot) {
+          var el = svgRoot.getElementById ? svgRoot.getElementById(id) : null;
+          if (!el) el = document.getElementById(id);
+          if (el) {
+            labelRaw = String(el.getAttribute('inkscape:label') || '').trim();
+            label = labelRaw;
+            if (!label && typeof getLabelForEl === 'function') label = getLabelForEl(el);
+            if (!label) label = id;
+            dataCode = String(el.getAttribute('data-code') || '').trim();
+            try {
+              var attrs = el.getAttributeNames ? el.getAttributeNames() : [];
+              for (var a = 0; a < attrs.length; a++) {
+                var an = attrs[a];
+                if (an.indexOf('data-line') === 0) {
+                  var v = String(el.getAttribute(an) || '').trim();
+                  if (v) dataLines.push({ name: an, value: v });
+                }
+              }
+            } catch(e) {}
+          }
+        }
+      } catch(e) {}
+      overrideItems.push({ id: id, status: st, label: label, labelInk: labelRaw, dataCode: dataCode, dataLines: dataLines });
+    }
+  } catch(e) {}
+
+  return {
+ meta: meta,
+ erzeugtAm: new Date().toISOString(),
+ stationLabels: buildStationLabelMap().labels,
+ stationIdsByCode: buildStationLabelMap().idsByCode,
+ stationStatusByCodeDetailed: buildStationStatusByCodeDetailed(),
+ stationStatusByCode: buildStationStatusByCodeBls(),
+
+    selection: {
+      activeLines: active,
+      lineOrder: selection.lineOrder.slice(),
+      overrides: overrides,
+      overrideItems: overrideItems
+    }
+  };
+}
+
+// === Teilen (iOS Share Sheet) / Minimalformat =============================
+function getMinimalPayload(){
+  const n = document.getElementById('nachname') ? String(document.getElementById('nachname').value || '').trim() : '';
+  const v = document.getElementById('vorname') ? String(document.getElementById('vorname').value || '').trim() : '';
+  const d = document.getElementById('datum') ? String(document.getElementById('datum').value || '').trim() : '';
+
+  const active = {};
+  try {
+    (selection.lineOrder || []).forEach(line => {
+      if (selection.activeLines && selection.activeLines[line]) active[line] = selection.activeLines[line];
+    });
+  } catch(e) {}
+
+  return {
+    meta: { nachname: n, vorname: v, datum: d },
+    erzeugtAm: new Date().toISOString(),
+    selection: {
+      activeLines: active,
+      lineOrder: (selection.lineOrder || []).slice(),
+      overrides: selection.overrides || {}
+    }
+  };
+}
+
+function makeFileName(meta){
+  const safe = (s)=> String(s || '').replace(/[^a-zA-Z0-9\-_. ]/g,'').trim().replace(/\s+/g,'_');
+  return ('streckenkundekarte_' + safe(meta.nachname) + '_' + safe(meta.vorname) + '_' + safe(meta.datum) + '.json').replace(/__+/g,'_');
+}
+
+async function shareOrDownloadJson(){
+  const payload = getExportPayload();
+  const meta = payload.meta || {};
+  if (!meta.nachname || !meta.vorname || !meta.datum){
+    toast('Bitte Vorname, Name und Datum ausfüllen.');
+    return;
+  }
+
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const fileName = 'streckenkundekarte_' + safeFilePart(meta.nachname) + '_' + safeFilePart(meta.vorname) + '_' + safeFilePart(meta.datum) + '.json';
+
+  let file = null;
+  try { file = new File([blob], fileName, { type: 'application/json' }); } catch(e) { file = null; }
+
+  // Web Share API (Teams/Mail/Files etc. via Share Sheet)
+  try {
+    if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ title: 'Streckenkundekarte', files: [file] });
+      toast('Teilen geöffnet.');
+      return;
+    }
+  } catch(e) {
+    // AbortError = Nutzer abgebrochen
+    console.warn(e);
+  }
+
+  // Fallback: Download
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast('Datei heruntergeladen (danach in Dateien teilen).');
+}
+
+
+function downloadJson(payload) {
+  var meta = payload.meta || {};
+  var fn = 'streckenkundekarte_' + safeFilePart(meta.nachname) + '_' + safeFilePart(meta.vorname) + '_' + safeFilePart(meta.datum) + '.json';
+  fn = fn.replace(/__+/g, '_');
+  var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = fn;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+}
+function saveToBrowser(payload) {
+  localStorage.setItem('streckenkundekarte_state_v1', JSON.stringify(payload));
+}
+function loadFromBrowser() {
+  var raw = localStorage.getItem('streckenkundekarte_state_v1');
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+function applyLoadedPayload(payload) {
+  if (!payload || !payload.selection) return false;
+  var sel = payload.selection;
+  selection.activeLines = sel.activeLines || {};
+  selection.lineOrder = Array.isArray(sel.lineOrder) ? sel.lineOrder : Object.keys(selection.activeLines);
+
+  // overrides bevorzugt (id->status). Falls nicht vorhanden: aus overrideItems rekonstruieren.
+  if (sel.overrides && typeof sel.overrides === 'object') {
+    selection.overrides = sel.overrides || {};
+  } else {
+    selection.overrides = {};
+    try {
+      var items = Array.isArray(sel.overrideItems) ? sel.overrideItems : [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i] && items[i].id) selection.overrides[items[i].id] = items[i].status || 'neutral';
+      }
+    } catch(e) {}
+  }
+
+  var meta = payload.meta || {};
+  if ($('nachname')) $('nachname').value = meta.nachname || '';
+  if ($('vorname')) $('vorname').value = meta.vorname || '';
+  if ($('datum')) $('datum').value = meta.datum || '';
+  setSelectedLineUi('');
+  applySelection();
+  renderActiveLines();
+  return true;
+}
+function loadStateFromFile(file) {
+  return new Promise(function(resolve, reject){
+    try {
+      var r = new FileReader();
+      r.onload = function(){
+        try { resolve(JSON.parse(String(r.result || ''))); } catch (e) { reject(e); }
+      };
+      r.onerror = function(){ reject(r.error); };
+      r.readAsText(file);
+    } catch (e) { reject(e); }
+  });
+}
+
+function persistMeta(){
+  try{
+    const m = { vorname: $('vorname')?$('vorname').value:'', nachname: $('nachname')?$('nachname').value:'', datum: $('datum')?$('datum').value:'' };
+    localStorage.setItem('mev_meta_v1', JSON.stringify(m));
+  }catch(e){}
+}
+function restoreMeta(){
+  try{
+    const raw = localStorage.getItem('mev_meta_v1');
+    if(!raw) return;
+    const m = JSON.parse(raw);
+    if(m && $('vorname') && typeof m.vorname==='string') $('vorname').value = m.vorname;
+    if(m && $('nachname') && typeof m.nachname==='string') $('nachname').value = m.nachname;
+    if(m && $('datum') && typeof m.datum==='string') $('datum').value = m.datum;
+  }catch(e){}
+}
+
+window.addEventListener('load', function(){
+  try {
+    var d = $('datum');
+    if (d && !d.value) d.value = todayISO();
+
+  // Personendaten merken
+  try{ restoreMeta(); }catch(e){}
+  ['vorname','nachname','datum'].forEach(function(id){
+    var el = $(id);
+    if (!el) return;
+    el.addEventListener('input', function(){ try{ persistMeta(); }catch(e){} });
+    el.addEventListener('change', function(){ try{ persistMeta(); }catch(e){} });
+  });
+
+
+  // Buttons: Datei
+  var bFileSave = $('saveJson');
+  if (bFileSave) bFileSave.addEventListener('click', function(ev){
+    ev.preventDefault();
+    var payload = getExportPayload();
+    var meta = payload.meta || {};
+    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
+    downloadJson(payload);
+    toast('Datei gespeichert.');
+  });
+
+  var bFileLoad = $('loadJson');
+  var sf = $('stateFile');
+  if (bFileLoad && sf) bFileLoad.addEventListener('click', function(ev){
+    ev.preventDefault();
+    try{ sf.value = ''; }catch(e){}
+    sf.click();
+  });
+
+  var bShare = $('shareJson');
+  if (bShare) bShare.addEventListener('click', function(ev){
+    ev.preventDefault();
+    shareOrDownloadJson();
+  });
+
+  // Buttons: Browser
+  var bBS = $('saveBrowser');
+  if (bBS) bBS.addEventListener('click', function(ev){
+    ev.preventDefault();
+    var payload = getExportPayload();
+    var meta = payload.meta || {};
+    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
+    saveToBrowser(payload);
+    toast('Im Browser gespeichert.');
+  });
+
+  var bBL = $('loadBrowser');
+  if (bBL) bBL.addEventListener('click', function(ev){
+    ev.preventDefault();
+    var payload = loadFromBrowser();
+    if (!payload) { toast('Keine Daten im Browser gespeichert.'); return; }
+    if (applyLoadedPayload(payload)) toast('Aus Browser geladen.');
+    else toast('Gespeicherte Daten sind ungültig.');
+  });
+
+
+ 
+  } catch (e) {}
+var sf = $('stateFile');
+  if (sf) sf.addEventListener('change', function(ev){
+    var f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
+    if (!f) return;
+    loadStateFromFile(f)
+      .then(function(payload){
+        if (applyLoadedPayload(payload)) { toast('Streckenkundekarte geladen.'); }
+        else { toast('Datei ist keine gültige Streckenkundekarte.'); }
+      })
+      .catch(function(err){ console.error(err); toast('JSON konnte nicht gelesen werden.'); });
+    try { sf.value = ''; } catch(e) {}
+  });
+});
+
+rebuildRouteList();
+
+// === AUTOLOAD_APP_V9 (nach Personendaten) ==================================
+(function(){
+  const st = document.getElementById('autoloadStatus');
+  const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
+
+  function abs(rel){
+    const base = window.location.href.split('#')[0];
+    return new URL(rel, base).toString();
+  }
+
+  async function loadIndex(){
+    const url = abs('assets/index.json');
+    setStatus('lade Index …');
+    const r = await fetch(url, { cache:'no-store' });
+    if(!r.ok) throw new Error('Index HTTP ' + r.status);
+    const obj = await r.json();
+    if(obj && typeof obj === 'object'){
+      if (obj.colors) indexData.colors = obj.colors;
+      if (Array.isArray(obj.availableLines)) indexData.availableLines = obj.availableLines;
+      if (obj.routes && typeof obj.routes === 'object') indexData.routes = obj.routes;
+    }
+  }
+
+  async function loadSvg(){
+    const url = abs('assets/map.svg');
+    const r = await fetch(url, { cache:'no-store' });
+    if(!r.ok) throw new Error('SVG HTTP ' + r.status);
+    const txt = await r.text();
+    embedSvg(txt);
+  }
+
+  let running = false;
+  let done = false;
+
+  function metaReady(){
+    const v = (document.getElementById('vorname')?.value || '').trim();
+    const n = (document.getElementById('nachname')?.value || '').trim();
+    const d = (document.getElementById('datum')?.value || '').trim();
+    return !!(v && n && d);
+  }
+
+  async function autoload(){
+    if (done) return;
+    if (running) return;
+    if (!metaReady()) { setStatus('warte auf Personendaten …'); return; }
+
+    running = true;
+    try{
+      try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen'); }
+      setStatus('lade SVG …');
+      await loadSvg();
+      // nach embedSvg: RouteList aktualisieren
+      try{ rebuildRouteList(); }catch(e){}
+      try{ applySelection(); }catch(e){}
+      try{ renderActiveLines(); }catch(e){}
+      setStatus('fertig');
+      done = true;
+    } catch(e){
+      setStatus('Fehler: ' + (e && e.message ? e.message : e));
+    } finally {
+      running = false;
+    }
+  }
+
+  function tryStartSoon(){
+    if (done) return;
+    if (!metaReady()) { setStatus('warte auf Personendaten …'); return; }
+    setTimeout(autoload, 150);
+  }
+
+  // Events: beim Laden und beim Tippen
+  window.addEventListener('load', tryStartSoon, { once:true });
+  ['vorname','nachname','datum'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => { tryStartSoon(); }, { passive:true });
+    el.addEventListener('change', () => { tryStartSoon(); }, { passive:true });
+  });
+})();
+</script>
+</body>
+</html>
