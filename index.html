@@ -184,8 +184,8 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:42 UTC</div>
-      <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:50 UTC</div>
+      <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
 <div class="actionsBar"> 
@@ -204,7 +204,7 @@ header{ padding: 10px 12px; }
             <button type="button" class="btn iconBtn btnBrowser" id="saveBrowser" title="Speichern (Browser)" aria-label="Speichern (Browser)"><span class="btnTxt">Speichern</span></button>
             <button type="button" class="btn iconBtn btnBrowser" id="loadBrowser" title="Laden (Browser)" aria-label="Laden (Browser)"><span class="btnTxt">Laden</span></button>
           
-</div>
+    </div>
         </div>
 </div>
     </div>
@@ -229,25 +229,24 @@ header{ padding: 10px 12px; }
     <div class="row">
       <label>Auswahl</label>
       <div id="selectedRoute" class="hint"></div>
-  <div class="row" style="margin-top:8px;">
-    <label>Ansicht</label>
-    <div class="btns">
-      <button type="button" class="btn" id="jumpToLine">Zur Strecke springen</button>
-      <button type="button" class="btn" id="jumpFit">Fit</button>
-    </div>
-    <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
-      <label style="margin:0; min-width:64px;">Zoom</label>
-      <select id="jumpZoom" style="flex:1; background:#0f1730; color:var(--text); border:1px solid var(--line); padding:8px; border-radius:8px;">
-        <option value="1.0">100%</option>
-        <option value="1.3" selected>130%</option>
-        <option value="1.6">160%</option>
-        <option value="2.0">200%</option>
-      </select>
-    </div>
-    <div class="hint" style="margin-top:6px;">Tipp: Strecke wählen, dann springen.</div>
-  </div>
       <input type="hidden" id="lineSelect" value="" />
   <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
+  <div class="row" style="margin-top:8px; margin-bottom:0;">
+    <label>Wischmodus</label>
+    <label style="display:flex; gap:8px; align-items:center; margin:0;">
+      <input id="swipeMark" type="checkbox" style="width:auto;"> Stationen mit Wischen markieren
+    </label>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <label style="margin:0; min-width:88px;">Markierung</label>
+      <select id="swipeStatus" style="flex:1; background:#0f1730; color:var(--text); border:1px solid var(--line); padding:8px; border-radius:8px;">
+        <option value="kundig" selected>Kundig (blau)</option>
+        <option value="unkundig">Auffrischung (rot)</option>
+        <option value="neutral">Neutral</option>
+        <option value="clear">Linie (Override entfernen)</option>
+      </select>
+    </div>
+    <div class="hint">Tipp: Wischen startet als Markierung nur, wenn du auf einem Punkt beginnst. Sonst verschiebst du die Karte wie bisher.</div>
+  </div>
 
       <div class="btns" style="margin-top:8px;">
         <button type="button" class="btn primary" id="lineBlue">Kundig (blau)</button>
@@ -354,6 +353,27 @@ function enableTouchGestures(){
   let pan = null;   // {x,y,vb,target,t}
   let pinch = null; // {dist,vb}
   let moved = 0;
+  let markSet = new Set();
+  let lastMarkTs = 0;
+  const swipeEnabled = () => { const cb = document.getElementById('swipeMark'); return !!(cb && cb.checked); };
+  const swipeMode = () => { const sel = document.getElementById('swipeStatus'); return sel ? String(sel.value||'kundig') : 'kundig'; };
+  function markPoint(el){
+    if(!el || !el.id) return;
+    const now = Date.now();
+    if (now - lastMarkTs < 25) return;
+    lastMarkTs = now;
+    if (markSet.has(el.id)) return;
+    markSet.add(el.id);
+    const mode = swipeMode();
+    if (mode === 'clear') {
+      if (selection.overrides && selection.overrides[el.id]) delete selection.overrides[el.id];
+      // zurück auf Linienstatus
+      setVisual(el, getLineStatusForElement(el));
+    } else {
+      selection.overrides[el.id] = mode;
+      setVisual(el, mode);
+    }
+  }
 
   function dist(a,b){
     const dx = a.clientX - b.clientX;
@@ -375,7 +395,17 @@ function enableTouchGestures(){
     moved = 0;
 
     if (e.touches.length === 1){
-      mode = 'pan';
+      markSet = new Set();
+      lastMarkTs = 0;
+      // Wenn Wischmodus aktiv ist und Start auf einem Punkt: markieren statt verschieben
+      const startEl = (typeof document.elementFromPoint === 'function') ? document.elementFromPoint(t.clientX, t.clientY) : e.target;
+      const pt0 = findPointFromTarget(startEl);
+      if (swipeEnabled() && pt0 && isPoint(pt0)) {
+        mode = 'mark';
+        markPoint(pt0);
+      } else {
+        mode = 'pan';
+      }
       const t = e.touches[0];
       pan = { x: t.clientX, y: t.clientY, vb: { ...view.cur }, target: e.target, t: Date.now() };
       pinch = null;
@@ -389,6 +419,17 @@ function enableTouchGestures(){
   }, {passive:false});
 
   svgRoot.addEventListener('touchmove', (e)=>{
+    if (mode === 'mark' && e.touches.length === 1) {
+      const t = e.touches[0];
+      const elAt = (typeof document.elementFromPoint === 'function') ? document.elementFromPoint(t.clientX, t.clientY) : e.target;
+      const pt = findPointFromTarget(elAt);
+      if (pt && isPoint(pt)) {
+        markPoint(pt);
+      }
+      e.preventDefault();
+      return;
+    }
+
     if (!view.cur || !view.base) return;
 
     if (mode === 'pan' && pan && e.touches.length === 1){
@@ -459,6 +500,10 @@ function enableTouchGestures(){
       }
     } catch(e) {}
 
+    if (mode === 'mark') {
+      try{ renderActiveLines(); }catch(e){}
+      try{ renderOrtskenntnisList(); }catch(e){}
+    }
     if (e.touches.length === 0){
       mode = 'none';
       pan = null;
@@ -962,90 +1007,6 @@ function renderOrtskenntnisList() {
   renderOrtskenntnisList();
 }
 
-// === Sprung zu Strecke (BBox-Cache) =======================================
-var lineBBoxByLine = {}; // { line: {x,y,width,height} }
-
-function _extractLineTokens(val){
-  const s = String(val || '');
-  const m = s.match(/\d+/g);
-  return m ? m : [];
-}
-
-function _pointBBoxFast(el){
-  try{
-    const tag = (el.tagName || '').toLowerCase();
-    if (tag === 'circle'){
-      const cx = Number(el.getAttribute('cx')); const cy = Number(el.getAttribute('cy')); const r = Number(el.getAttribute('r'));
-      if (isFinite(cx) && isFinite(cy) && isFinite(r)) return { x: cx-r, y: cy-r, width: 2*r, height: 2*r };
-    }
-    if (tag === 'ellipse'){
-      const cx = Number(el.getAttribute('cx')); const cy = Number(el.getAttribute('cy'));
-      const rx = Number(el.getAttribute('rx')); const ry = Number(el.getAttribute('ry'));
-      if (isFinite(cx) && isFinite(cy) && isFinite(rx) && isFinite(ry)) return { x: cx-rx, y: cy-ry, width: 2*rx, height: 2*ry };
-    }
-  }catch(e){}
-  try{ return el.getBBox(); }catch(e){ return null; }
-}
-
-function _unionBBox(a, b){
-  if (!a) return b;
-  if (!b) return a;
-  const x1 = Math.min(a.x, b.x);
-  const y1 = Math.min(a.y, b.y);
-  const x2 = Math.max(a.x + a.width,  b.x + b.width);
-  const y2 = Math.max(a.y + a.height, b.y + b.height);
-  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
-}
-
-function buildLineBBoxCache(){
-  lineBBoxByLine = {};
-  if (!svgRoot) return;
-  try{
-    const els = svgRoot.querySelectorAll('[data-typ], [data-type]');
-    els.forEach(el => {
-      if (!isPoint(el)) return;
-      const b = _pointBBoxFast(el);
-      if (!b) return;
-      const attrs = el.getAttributeNames ? el.getAttributeNames() : [];
-      for (let i=0;i<attrs.length;i++){
-        const a = attrs[i];
-        if (!a.startsWith('data-line')) continue;
-        const tokens = _extractLineTokens(el.getAttribute(a));
-        for (let t=0;t<tokens.length;t++){
-          const ln = tokens[t];
-          if (!ln) continue;
-          lineBBoxByLine[ln] = _unionBBox(lineBBoxByLine[ln], b);
-        }
-      }
-    });
-  }catch(e){}
-}
-
-function zoomToLine(line, zoomMul){
-  if (!svgRoot || !view.base) return;
-  const ln = String(line || '').replace(/\D+/g,'');
-  const bb = lineBBoxByLine[ln];
-  if (!bb) { toast('Keine Punkte für diese Strecke gefunden.'); return; }
-
-  const pad = Math.max(bb.width, bb.height) * 0.20;
-  let x = bb.x - pad;
-  let y = bb.y - pad;
-  let w = bb.width  + 2*pad;
-  let h = bb.height + 2*pad;
-
-  const zm = Number(zoomMul || 1.0);
-  if (isFinite(zm) && zm > 0){
-    const cx = x + w/2;
-    const cy = y + h/2;
-    w = w / zm;
-    h = h / zm;
-    x = cx - w/2;
-    y = cy - h/2;
-  }
-
-  setViewBox({ x: x, y: y, w: w, h: h });
-}
-
   function setSelectedLineStatus(status) {
   const line = $('lineSelect').value;
   if (!line) { toast('Bitte zuerst eine Strecke in der Liste wählen.'); return; }
@@ -1281,37 +1242,45 @@ function makeFileName(meta){
 }
 
 async function shareOrDownloadJson(){
-  const payload = getMinimalPayload();
+  const payload = getExportPayload();
   const meta = payload.meta || {};
   if (!meta.nachname || !meta.vorname || !meta.datum){
-    toast('Bitte Name, Vorname und Datum ausfüllen.');
+    toast('Bitte Vorname, Name und Datum ausfüllen.');
     return;
   }
 
   const json = JSON.stringify(payload, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
-  const fileName = makeFileName(meta);
+  const fileName = 'streckenkundekarte_' + safeFilePart(meta.nachname) + '_' + safeFilePart(meta.vorname) + '_' + safeFilePart(meta.datum) + '.json';
+
   let file = null;
   try { file = new File([blob], fileName, { type: 'application/json' }); } catch(e) { file = null; }
 
+  // Web Share API (Teams/Mail/Files etc. via Share Sheet)
   try {
     if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ title: 'Streckenkundekarte', files: [file] });
-      toast('Geteilt.');
+      toast('Teilen geöffnet.');
       return;
     }
-  } catch(e) { console.warn(e); }
+  } catch(e) {
+    // AbortError = Nutzer abgebrochen
+    console.warn(e);
+  }
 
+  // Fallback: Download
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = fileName;
+  a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
   toast('Datei heruntergeladen (danach in Dateien teilen).');
 }
+
 
 function downloadJson(payload) {
   var meta = payload.meta || {};
@@ -1393,91 +1362,66 @@ function restoreMeta(){
   }catch(e){}
 }
 
-function wireUi(){
-  // Jump
-  var btnJump = $('jumpToLine');
-  var btnFit  = $('jumpFit');
-  var selZoom = $('jumpZoom');
-  if (btnJump && !btnJump.dataset.bound){
-    btnJump.dataset.bound='1';
-    btnJump.addEventListener('click', function(){
-      var ln = $('lineSelect') ? $('lineSelect').value : '';
-      if (!ln) { toast('Bitte zuerst eine Strecke wählen.'); return; }
-      var zm = selZoom ? Number(selZoom.value || '1.3') : 1.3;
-      
-    });
-  }
-  if (btnFit && !btnFit.dataset.bound){
-    btnFit.dataset.bound='1';
-    btnFit.addEventListener('click', function(){
-      var ln = $('lineSelect') ? $('lineSelect').value : '';
-      if (!ln) { resetView(); return; }
-      
-    });
-  }
-
-  // Datei
-  var bFileSave = $('saveJson');
-  if (bFileSave && !bFileSave.dataset.bound){
-    bFileSave.dataset.bound='1';
-    bFileSave.addEventListener('click', function(ev){
-      ev.preventDefault();
-      var payload = getExportPayload();
-      var meta = payload.meta || {};
-      if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
-      downloadJson(payload);
-      toast('Datei gespeichert.');
-    });
-  }
-  var bFileLoad = $('loadJson');
-  var sf = $('stateFile');
-  if (bFileLoad && sf && !bFileLoad.dataset.bound){
-    bFileLoad.dataset.bound='1';
-    bFileLoad.addEventListener('click', function(ev){
-      ev.preventDefault();
-      try{ sf.value=''; }catch(e){}
-      sf.click();
-    });
-  }
-  var bShare = $('shareJson');
-  if (bShare && !bShare.dataset.bound){
-    bShare.dataset.bound='1';
-    bShare.addEventListener('click', function(ev){
-      ev.preventDefault();
-      shareOrDownloadJson();
-    });
-  }
-
-  // Browser
-  var bBS = $('saveBrowser');
-  if (bBS && !bBS.dataset.bound){
-    bBS.dataset.bound='1';
-    bBS.addEventListener('click', function(ev){
-      ev.preventDefault();
-      var payload = getExportPayload();
-      var meta = payload.meta || {};
-      if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
-      saveToBrowser(payload);
-      toast('Im Browser gespeichert.');
-    });
-  }
-  var bBL = $('loadBrowser');
-  if (bBL && !bBL.dataset.bound){
-    bBL.dataset.bound='1';
-    bBL.addEventListener('click', function(ev){
-      ev.preventDefault();
-      var payload = loadFromBrowser();
-      if (!payload) { toast('Keine Daten im Browser gespeichert.'); return; }
-      if (applyLoadedPayload(payload)) toast('Aus Browser geladen.');
-      else toast('Gespeicherte Daten sind ungültig.');
-    });
-  }
-}
 window.addEventListener('load', function(){
   try {
     var d = $('datum');
     if (d && !d.value) d.value = todayISO();
-  try{ wireUi(); }catch(e){}
+
+  // Personendaten merken
+  try{ restoreMeta(); }catch(e){}
+  ['vorname','nachname','datum'].forEach(function(id){
+    var el = $(id);
+    if (!el) return;
+    el.addEventListener('input', function(){ try{ persistMeta(); }catch(e){} });
+    el.addEventListener('change', function(){ try{ persistMeta(); }catch(e){} });
+  });
+
+
+  // Buttons: Datei
+  var bFileSave = $('saveJson');
+  if (bFileSave) bFileSave.addEventListener('click', function(ev){
+    ev.preventDefault();
+    var payload = getExportPayload();
+    var meta = payload.meta || {};
+    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
+    downloadJson(payload);
+    toast('Datei gespeichert.');
+  });
+
+  var bFileLoad = $('loadJson');
+  var sf = $('stateFile');
+  if (bFileLoad && sf) bFileLoad.addEventListener('click', function(ev){
+    ev.preventDefault();
+    try{ sf.value = ''; }catch(e){}
+    sf.click();
+  });
+
+  var bShare = $('shareJson');
+  if (bShare) bShare.addEventListener('click', function(ev){
+    ev.preventDefault();
+    shareOrDownloadJson();
+  });
+
+  // Buttons: Browser
+  var bBS = $('saveBrowser');
+  if (bBS) bBS.addEventListener('click', function(ev){
+    ev.preventDefault();
+    var payload = getExportPayload();
+    var meta = payload.meta || {};
+    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Vorname, Name und Datum ausfüllen.'); return; }
+    saveToBrowser(payload);
+    toast('Im Browser gespeichert.');
+  });
+
+  var bBL = $('loadBrowser');
+  if (bBL) bBL.addEventListener('click', function(ev){
+    ev.preventDefault();
+    var payload = loadFromBrowser();
+    if (!payload) { toast('Keine Daten im Browser gespeichert.'); return; }
+    if (applyLoadedPayload(payload)) toast('Aus Browser geladen.');
+    else toast('Gespeicherte Daten sind ungültig.');
+  });
+
 
  
   } catch (e) {}
