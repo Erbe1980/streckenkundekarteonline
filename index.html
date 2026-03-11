@@ -190,7 +190,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:45 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:54 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
@@ -253,7 +253,7 @@ header{ padding: 10px 12px; }
     <button type="button" class="btn statusBtn" data-status="unkundig">Auffrischung</button>
     <button type="button" class="btn statusBtn" data-status="neutral">Nicht kundig</button>
   </div>
-  <div class="hint">Einzeln/Wischen: setzt Stationen auf den gewählten Status. Linien: setzt den Status für die gewählte Linie.</div>
+  <div class="hint">Wischen: Karte fixiert. Einzeln: Tippen schaltet weiter. Linien: Status setzt die gewählte Linie.</div>
 </div>
 
 <h2>Strecke wählen & markieren</h2>
@@ -263,8 +263,7 @@ header{ padding: 10px 12px; }
       <div id="selectedRoute" class="hint"></div>
       <input type="hidden" id="lineSelect" value="" />
   <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
-
-      <div class="btns" style="margin-top:8px;">
+<div class="btns" style="margin-top:8px;">
         <button type="button" class="btn" id="resetView">Ansicht zurücksetzen</button>
         <button type="button" class="btn" id="resetAll">Alles zurücksetzen</button>
       </div>
@@ -332,7 +331,7 @@ header{ padding: 10px 12px; }
 
   const $ = (id) => document.getElementById(id);
 
-// --- UI State: Modus + Status (stabil) ---
+// --- UI State: Modus + Status ---
 window.__uiState = { mode: 'wischen', status: 'kundig' };
 function setMode(m){
   window.__uiState.mode = m;
@@ -341,7 +340,7 @@ function setMode(m){
   if (lm){ lm.checked = (m === 'wischen'); }
   const hint = $('modeHint');
   if (hint){
-    hint.textContent = (m === 'wischen') ? 'Wischen: Karte ist fixiert. Über Stationen wischen zum Markieren.' : (m === 'einzeln' ? 'Einzeln: Tippen setzt Stationen auf den gewählten Status.' : 'Linien: Streckenliste nutzen und Status für die gewählte Linie setzen.');
+    hint.textContent = (m === 'wischen') ? 'Wischen: Karte ist fixiert. Über Stationen wischen zum Markieren.' : (m === 'einzeln' ? 'Einzeln: Tippen schaltet weiter (kundig → auffrischung → nicht kundig).' : 'Linien: Streckenliste nutzen und Status für die gewählte Linie setzen.');
   }
 }
 function setStatus(st){
@@ -379,8 +378,8 @@ function findPointFromTarget(t){
 function enableTouchGestures(){
   if (!svgRoot) return;
   let mode = 'none';
-  let pan = null;
-  let pinch = null;
+  let pan = null;   // {x,y,vb,t,target}
+  let pinch = null; // {dist,vb}
   let moved = 0;
   let markSet = new Set();
   let lastMarkTs = 0;
@@ -398,6 +397,7 @@ function enableTouchGestures(){
     const sp = pt.matrixTransform(ctm.inverse());
     return {x: sp.x, y: sp.y};
   }
+
   function markPoint(el){
     if (!el || !el.id) return;
     const now = Date.now();
@@ -411,18 +411,34 @@ function enableTouchGestures(){
     setVisual(el, st);
   }
 
+  function cyclePoint(el){
+    if (!el || !el.id) return;
+    const order = ['kundig','unkundig','neutral'];
+    let cur = 'neutral';
+    try{
+      if (selection.overrides && selection.overrides[el.id]) cur = selection.overrides[el.id];
+      else cur = getLineStatusForElement(el);
+    }catch(e){}
+    const idx = Math.max(0, order.indexOf(cur));
+    const next = order[(idx + 1) % order.length];
+    selection.overrides = selection.overrides || {};
+    selection.overrides[el.id] = next;
+    applySelection();
+    renderActiveLines();
+    toast(`${pointDisplayName(el)}: ${next === 'kundig' ? 'kundig' : (next === 'unkundig' ? 'auffrischung' : 'nicht kundig')}`);
+  }
+
   svgRoot.addEventListener('touchstart', (e)=>{
     if (!view.cur || !view.base) return;
     moved = 0;
 
     if (curMode && curMode() === 'wischen'){
-      // Karte fixiert: nur markieren
       if (e.touches.length === 1){
         mode = 'mark';
         markSet = new Set();
         lastMarkTs = 0;
         const t = e.touches[0];
-        const pt = pointFromClientXY(t.clientX, t.clientY);
+        const pt = pointFromClientXYRadius(t.clientX, t.clientY, 18);
         if (pt) markPoint(pt);
         moved = 20;
       }
@@ -430,17 +446,14 @@ function enableTouchGestures(){
       return;
     }
 
-    if (lockEnabled && lockEnabled()){
-      e.preventDefault();
-      return;
-    }
-
+    // Einzeln/Linien
     if (e.touches.length === 1){
       mode = 'pan';
       const t = e.touches[0];
-      pan = { x: t.clientX, y: t.clientY, vb: { ...view.cur } };
+      pan = { x: t.clientX, y: t.clientY, vb: { ...view.cur }, t: Date.now(), target: e.target };
       pinch = null;
     } else if (e.touches.length >= 2){
+      if (lockEnabled && lockEnabled()) { e.preventDefault(); return; }
       mode = 'pinch';
       pinch = { dist: dist(e.touches[0], e.touches[1]), vb: { ...view.cur } };
       pan = null;
@@ -454,16 +467,18 @@ function enableTouchGestures(){
 
     if (mode === 'mark' && e.touches.length === 1){
       const t = e.touches[0];
-      const pt = pointFromClientXY(t.clientX, t.clientY);
+      const pt = pointFromClientXYRadius(t.clientX, t.clientY, 18);
       if (pt) markPoint(pt);
       e.preventDefault();
       return;
     }
 
     if (mode === 'pan' && pan && e.touches.length === 1){
+      if (lockEnabled && lockEnabled()) { e.preventDefault(); return; }
       const t = e.touches[0];
       const dx = t.clientX - pan.x;
       const dy = t.clientY - pan.y;
+      moved = Math.max(moved, Math.abs(dx) + Math.abs(dy));
       const rect = svgRoot.getBoundingClientRect();
       const sx = pan.vb.w / rect.width;
       const sy = pan.vb.h / rect.height;
@@ -486,6 +501,7 @@ function enableTouchGestures(){
       const nx = mid.x - (mid.x - vb0.x) * (nw / vb0.w);
       const ny = mid.y - (mid.y - vb0.y) * (nh / vb0.h);
       setViewBox({ x: nx, y: ny, w: nw, h: nh });
+      moved = Math.max(moved, 20);
     }
 
     e.preventDefault();
@@ -500,15 +516,27 @@ function enableTouchGestures(){
         mode = 'none';
         pan = null;
         pinch = null;
+        moved = 0;
       }
       e.preventDefault();
       return;
     }
 
+    // Tap für Modus Einzeln: weiter schalten
+    try{
+      if (pan && (Date.now() - pan.t) < 350 && moved < 10){
+        if (curMode && curMode() === 'einzeln'){
+          const pt = pointFromClientXYRadius(pan.x, pan.y, 12) || findPointFromTarget(pan.target);
+          if (pt && isPoint(pt)) cyclePoint(pt);
+        }
+      }
+    }catch(err){}
+
     if (e.touches.length === 0){
       mode = 'none';
       pan = null;
       pinch = null;
+      moved = 0;
     }
     e.preventDefault();
   }, {passive:false});
@@ -638,6 +666,21 @@ function pointFromClientXY(cx, cy){
       if (pt && isPoint(pt)) return pt;
     }
   }catch(e){}
+  return null;
+}
+
+function pointFromClientXYRadius(cx, cy, r){
+  const rad = Number(r||0);
+  if (!rad || rad <= 0) return pointFromClientXY(cx, cy);
+  const offs = [
+    [0,0], [rad,0], [-rad,0], [0,rad], [0,-rad],
+    [rad,rad], [rad,-rad], [-rad,rad], [-rad,-rad],
+    [rad*0.5,0], [-rad*0.5,0], [0,rad*0.5], [0,-rad*0.5]
+  ];
+  for (let i=0;i<offs.length;i++){
+    const pt = pointFromClientXY(cx + offs[i][0], cy + offs[i][1]);
+    if (pt) return pt;
+  }
   return null;
 }
 
@@ -864,29 +907,31 @@ function renderOrtskenntnisList() {
     if (cur) setSelectedLineUi(cur);
   }
 
-  function enablePointClickCycle(){
-  if (!svgRoot) return;
-  svgRoot.addEventListener('click', (ev) => {
-    if (curMode && curMode() !== 'einzeln') return;
-    const pt = findPointFromTarget(ev.target);
-    if (!pt || !isPoint(pt)) return;
+  function enablePointClickCycle() {
+ if (!svgRoot) return;
+ svgRoot.addEventListener('click', (ev) => {
+   const pt = findPointFromTarget(ev.target);
+   if (!pt || !isPoint(pt)) return;
+   const id = pt.id;
+   if (!id) return;
 
-    const order = ['kundig','unkundig','neutral'];
-    let cur = 'neutral';
-    try{
-      if (selection.overrides && selection.overrides[pt.id]) cur = selection.overrides[pt.id];
-      else cur = getLineStatusForElement(pt);
-    }catch(e){}
-    const idx = Math.max(0, order.indexOf(cur));
-    const next = order[(idx + 1) % order.length];
+   const baseStatus = getLineStatusForElement(pt);
+   const cur = selection.overrides[id] || '';
+   let next = 'kundig';
+   if (cur === '') next = 'kundig';
+   else if (cur === 'kundig') next = 'unkundig';
+   else if (cur === 'unkundig') next = 'neutral';
+   else if (cur === 'neutral') next = '';
 
-    selection.overrides = selection.overrides || {};
-    selection.overrides[pt.id] = next;
-    applySelection();
-    renderActiveLines();
-    toast(`${pointDisplayName(pt)}: ${next === 'kundig' ? 'kundig' : (next === 'unkundig' ? 'auffrischung' : 'nicht kundig')}`);
-    ev.stopPropagation();
-  });
+   if (next === '') delete selection.overrides[id];
+   else selection.overrides[id] = next;
+
+   applySelection();
+   renderActiveLines();
+   const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
+   toast(`${id}: ${msg}`);
+   ev.stopPropagation();
+ });
 }
 
   function getInitialViewBox(svg) {
@@ -1036,7 +1081,6 @@ function applyStatusToSelectedLine(){
   const st = curStatus ? curStatus() : 'kundig';
   if (st === 'kundig') { setSelectedLineStatus('kundig'); return; }
   if (st === 'unkundig') { setSelectedLineStatus('unkundig'); return; }
-  // nicht kundig = Linie entfernen
   removeSelectedLine();
 }
 
@@ -1077,14 +1121,14 @@ selection.activeLines[line] = status;
   renderOrtskenntnisList();
 }
 
-  var _sf=$('svgFile'); if(_sf) _sf.addEventListener('change', async (e) => {
+  $('svgFile').addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     const txt = await readFileAsText(f);
     embedSvg(txt);
   });
 
-  var _if=$('indexFile'); if(_if) _if.addEventListener('change', async (e) => {
+  $('indexFile').addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     try {
