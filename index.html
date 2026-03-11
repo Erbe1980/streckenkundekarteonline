@@ -184,38 +184,35 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 10:05 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 10:12 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
     </div>
     <div class="headerRight">
-<div class="actionsBar">
+<div class="actionsBar"> 
         <div class="actionGroup">
-          <div class="groupTitle">Lokal</div>
+          <div class="groupTitle">Datei</div>
           <div class="groupBtns">
-            <button type="button" class="btn iconBtn btnSave" id="saveJson" title="Speichern (lokal)" aria-label="Speichern (lokal)">💾 <span class="btnTxt">Speichern</span></button>
-            <button type="button" class="btn iconBtn btnLoad" id="loadJson" title="Laden (lokal)" aria-label="Laden (lokal)">⬇︎ <span class="btnTxt">Laden</span></button>
-            <button type="button" class="btn iconBtn btnShare" id="shareJson" title="Teilen" aria-label="Teilen">⤴︎ <span class="btnTxt">Teilen</span></button>
+            <button type=\"button\" class="btn iconBtn btnSave" id="saveJson" title="Speichern (Datei)" aria-label="Speichern (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14l2 2v16H3V3h2zm2 2v6h10V5H7zm0 10v4h10v-4H7z"/></svg><span class="btnTxt">Speichern</span></button>
+            <button type=\"button\" class="btn iconBtn btnLoad" id="loadJson" title="Laden (Datei)" aria-label="Laden (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H9v5H5v13h16V3zm-8 7V5h6v14H7V10h4zm1.5 3V9h-1v4H9.5L12 15.5 14.5 13H12.5z"/></svg><span class="btnTxt">Laden</span></button>
+            <button type=\"button\" class="btn iconBtn btnShare" id="shareJson" title="Teilen…" aria-label="Teilen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 16a3 3 0 0 0-2.4 1.2L8.9 13.7a3.2 3.2 0 0 0 0-3.4l6.7-3.5A3 3 0 1 0 15 5a3 3 0 0 0 .1.7L8.4 9.2a3 3 0 1 0 0 5.6l6.7 3.5A3 3 0 1 0 18 16z"/></svg><span class="btnTxt">Teilen</span></button>
           </div>
         </div>
-      </div>
+
+        <div class="actionGroup">
+          <div class="groupTitle">Browser</div>
+          <div class="groupBtns">
+            <button type=\"button\" class="btn iconBtn btnBrowser" id="saveLocal" title="Speichern (Browser)" aria-label="Speichern (Browser)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 4v10h16V8H4zm8 1 3 3h-2v4h-2v-4H9l3-3z"/></svg><span class="btnTxt">Speichern</span></button>
+            <button type=\"button\" class="btn iconBtn btnBrowser" id="loadLocal" title="Laden (Browser)" aria-label="Laden (Browser)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 4v10h16V8H4zm8 8-3-3h2V9h2v4h2l-3 3z"/></svg><span class="btnTxt">Laden</span></button>
+          </div>
+        </div>
+</div>
     </div>
   </div>
-</div>
 </header>
 
 <div class="wrap">
   <section class="panel">
 
-<h2>Personendaten</h2>
-<div class="row">
-  <label>Vorname</label>
-  <input id="vorname" type="text" autocomplete="given-name" placeholder="Vorname" />
-  <label>Name</label>
-  <input id="nachname" type="text" autocomplete="family-name" placeholder="Name" />
-  <label>Datum</label>
-  <input id="datum" type="date" />
-</div>
-<div class="hr"></div>
 <h2>Strecke wählen & markieren</h2>
     <div class="row">
       <label>Auswahl</label>
@@ -224,14 +221,14 @@ header{ padding: 10px 12px; }
   <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
 
       <div class="btns" style="margin-top:8px;">
-        <button class="btn primary" id="lineBlue">Kundig (blau)</button>
-        <button class="btn danger" id="lineRed">Auffrischung (rot)</button>
-        <button class="btn full" id="lineOff">Linie entfernen</button>
+        <button type=\"button\" class="btn primary" id="lineBlue">Kundig (blau)</button>
+        <button type=\"button\" class="btn danger" id="lineRed">Auffrischung (rot)</button>
+        <button type=\"button\" class="btn full" id="lineOff">Linie entfernen</button>
       </div>
 
       <div class="btns" style="margin-top:8px;">
-        <button class="btn" id="resetView">Ansicht zurücksetzen</button>
-        <button class="btn" id="resetAll">Alles zurücksetzen</button>
+        <button type=\"button\" class="btn" id="resetView">Ansicht zurücksetzen</button>
+        <button type=\"button\" class="btn" id="resetAll">Alles zurücksetzen</button>
       </div>
 
       <div class="row" style="margin-top:10px; margin-bottom:0;">
@@ -267,7 +264,7 @@ header{ padding: 10px 12px; }
   const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
   window.addEventListener('error', (ev) => { try{ setStatus('JS-Fehler: ' + (ev && ev.message ? ev.message : ev)); }catch(e){} });
   window.addEventListener('unhandledrejection', (ev) => { try{ setStatus('Promise-Fehler: ' + (ev && ev.reason ? (ev.reason.message || ev.reason) : ev)); }catch(e){} });
-  setStatus('JS läuft');
+  setStatus('warte auf Personendaten …');
 })();
 
   let svgRoot = null;
@@ -605,7 +602,7 @@ function renderMetaForSelectedLine() {
     const isNeutral = (selection.overrides && selection.overrides[p.id] === 'neutral');
     const cls = isNeutral ? 'metaBtn off' : 'metaBtn';
     const title = isNeutral ? 'Ist neutral (Override). Klick entfernt Override.' : 'Klick setzt neutral (Override).';
-    return `<button class="${cls}" data-point-id="${p.id}" title="${title}">${escapeHtml(p.ort)}</button>`;
+    return `<button type=\"button\" class="${cls}" data-point-id="${p.id}" title="${title}">${escapeHtml(p.ort)}</button>`;
   }).join('');
   host.innerHTML = `
     <div class="metaBlock">
@@ -645,7 +642,7 @@ function renderOrtskenntnisList() {
       const isNeutral = (selection.overrides && selection.overrides[p.id] === 'neutral');
       const cls = isNeutral ? 'metaBtn off' : 'metaBtn';
       const t = isNeutral ? 'Ist neutral (Override). Klick entfernt Override.' : 'Klick setzt neutral (Override).';
-      return `<button class="${cls}" data-point-id="${p.id}" title="${t}" data-line="${line}">${escapeHtml(p.ort)}</button>`;
+      return `<button type=\"button\" class="${cls}" data-point-id="${p.id}" title="${t}" data-line="${line}">${escapeHtml(p.ort)}</button>`;
     }).join('');
     blocks.push(`
       <div class="metaBlock">
@@ -1288,34 +1285,22 @@ window.addEventListener('load', function(){
     var d = $('datum');
     if (d && !d.value) d.value = todayISO();
 
-  // Buttons: lokal speichern/laden/teilen
-  var bSave = $('saveJson');
-  if (bSave) bSave.addEventListener('click', function(ev){
-    ev.preventDefault();
-    var payload = getExportPayload();
-    var meta = payload.meta;
-    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Name, Vorname und Datum ausfüllen.'); return; }
-    saveToBrowser(payload);
-    toast('Streckenkundekarte lokal gespeichert.');
-  });
-
-  var bLoad = $('loadJson');
-  if (bLoad) bLoad.addEventListener('click', function(ev){
-    ev.preventDefault();
-    var payload = loadFromBrowser();
-    if (!payload) { toast('Keine lokalen Daten gefunden.'); return; }
-    if (applyLoadedPayload(payload)) toast('Streckenkundekarte geladen.');
-    else toast('Lokale Daten sind ungültig.');
-  });
-
-  var bShare = $('shareJson');
-  if (bShare) bShare.addEventListener('click', function(ev){
-    ev.preventDefault();
-    shareOrDownloadJson();
-  });
-
  
   } catch (e) {}
+var b2 = $('saveLocal');
+  if (b2) b2.addEventListener('click', function(){
+    var payload = getExportPayload();
+    saveToBrowser(payload);
+    toast('Streckenkundekarte im Browser gespeichert.');
+  });
+
+  var b3 = $('loadLocal');
+  if (b3) b3.addEventListener('click', function(){
+    var payload = loadFromBrowser();
+    if (!payload) { toast('Keine gespeicherten Daten im Browser gefunden.'); return; }
+    if (applyLoadedPayload(payload)) toast('Streckenkundekarte geladen.');
+    else toast('Gespeicherte Daten sind ungültig.');
+  });
 var sf = $('stateFile');
   if (sf) sf.addEventListener('change', function(ev){
     var f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
@@ -1336,13 +1321,6 @@ rebuildRouteList();
 (function(){
   const st = document.getElementById('autoloadStatus');
   const setStatus = (msg) => { if(st) st.innerHTML = '<b>Autoload:</b> ' + msg; };
-
-  function isEditing(){
-    const a = document.activeElement;
-    if(!a) return false;
-    const t = (a.tagName || '').toLowerCase();
-    return (t === 'input' || t === 'textarea' || t === 'select');
-  }
 
   function abs(rel){
     const base = window.location.href.split('#')[0];
@@ -1381,8 +1359,6 @@ rebuildRouteList();
   let running = false;
  let done = false;
   async function autoload(){
-    if (done) return;
-    if (isEditing()) return;
     if(running) return;
     running = true;
     try{
@@ -1407,16 +1383,27 @@ rebuildRouteList();
     }
   }
 
-  function schedule(){
+  
+
+  function metaReady(){
+    const v = (document.getElementById('vorname')?.value || '').trim();
+    const n = (document.getElementById('nachname')?.value || '').trim();
+    const d = (document.getElementById('datum')?.value || '').trim();
+    return !!(v && n && d);
+  }
+  function tryStart(){
     if (done) return;
-    if (isEditing()) return;
- if (done) return;
-    setTimeout(autoload, 0);
-    }
-
+    if (running) return;
+    if (!metaReady()) { setStatus('warte auf Personendaten …'); return; }
+    setTimeout(autoload, 120);
+  }
+  window.addEventListener('load', tryStart, { once:true });
+  ['vorname','nachname','datum'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => { try{ persistMeta(); }catch(e){} tryStart(); }, { passive:true });
+    el.addEventListener('change', () => { try{ persistMeta(); }catch(e){} tryStart(); }, { passive:true });
   });
-
-  schedule();
 })();
 
 </script>
