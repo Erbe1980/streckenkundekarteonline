@@ -22,7 +22,7 @@
     .wrap { display: grid; grid-template-columns: 380px 1fr; gap: 12px; padding: 12px; }
     @media (max-width: 980px) { .wrap { grid-template-columns: 1fr; } }
 
-    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow:auto; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
     .panel h2 { margin: 0 0 10px; font-size: 14px; }
     .row { display: grid; grid-template-columns: 1fr; gap: 8px; margin-bottom: 12px; }
     label { font-size: 12px; color: var(--muted); }
@@ -51,7 +51,6 @@
     .hr { height:1px; background: rgba(255,255,255,0.08); margin: 10px 0; }
 
     .routeList{
- -webkit-overflow-scrolling: touch;
       max-height: 320px;
       overflow: auto;
       border: 1px solid var(--line);
@@ -129,21 +128,6 @@ header { flex: 0 0 auto; }
 /* Force: Build/Status immer sichtbar */
 #buildId, #autoloadStatus { display:block !important; }
 
-
-/* iOS isolate map gestures */
-.mapWrap, #mapHost, #svgObj, #mapHost svg{
-  touch-action: none;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-}
-.mapWrap{ overscroll-behavior: contain; }
-#mapHost{ overflow: hidden; }
-
-/* Kleine Zoom-Buttons */
-.mapBtns{ position:absolute; left:10px; top:10px; display:flex; gap:8px; z-index:5; }
-.mapBtn{ background: rgba(18,26,43,0.9); border:1px solid rgba(35,49,77,0.9); color:#e8eefc; padding:6px 10px; border-radius:10px; font-weight:700; }
-
 </style>
 
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -199,13 +183,6 @@ header { flex: 0 0 auto; }
     <div class="row">
       <label>Auswahl</label>
       <div id="selectedRoute" class="hint"></div>
-<div class="btns" style="margin-top:8px;">
-  <button class="btn full" id="jumpLine">Zur Strecke springen</button>
-</div>
-<label style="display:flex; gap:8px; align-items:center; margin-top:10px;">
-  <input type="checkbox" id="autoJump" checked>
-  Beim Auswählen automatisch springen
-</label
       <input type="hidden" id="lineSelect" value="" />
   <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
 
@@ -244,12 +221,7 @@ header { flex: 0 0 auto; }
 
   <section class="mapWrap">
     <div class="zoomHint">Zoom: Mausrad · Pan: Alt+Drag / Mitteltaste</div>
-    <div class="mapBtns">
-  <button class="mapBtn" id="zoomIn" title="Zoom +">+</button>
-  <button class="mapBtn" id="zoomOut" title="Zoom -">−</button>
-  <button class="mapBtn" id="zoomReset" title="Ansicht zurücksetzen">⟲</button>
-</div>
-<div id="mapHost">
+    <div id="mapHost">
       <div style="color:#111; font-family: system-ui; padding:12px;">
         <b>SVG noch nicht geladen.</b><br>
         Lade links deine SVG-Datei.
@@ -298,6 +270,7 @@ header { flex: 0 0 auto; }
   };
 
   const $ = (id) => document.getElementById(id);
+ function getSelectedLine(){ const el = $('lineSelect'); return el ? String(el.value || '').trim() : ''; }
 
   function toast(msg) {
     const t = $("toast");
@@ -452,7 +425,7 @@ function getOrtskenntnisPointsForLine(line) {
 function renderMetaForSelectedLine() {
   const host = $('metaForSelectedLine');
   if (!host) return;
-  const line = $('lineSelect').value;
+  const line = ( $('lineSelect') ? $('lineSelect').value : '' );
   if (!line || !svgRoot) { host.innerHTML = ''; return; }
   const lineStatus = selection.activeLines[line] || '';
   if (lineStatus !== 'kundig') { host.innerHTML = ''; return; }
@@ -618,7 +591,6 @@ function renderOrtskenntnisList() {
       row.addEventListener('click', () => {
         setSelectedLineUi(line);
         toast(`Linie gewählt: ${line}`);
-      try{ const aj = $('autoJump'); if (aj && aj.checked) { setTimeout(() => jumpToLine(line), 0); } }catch(e){}
       });
 
       host.appendChild(row);
@@ -628,281 +600,38 @@ function renderOrtskenntnisList() {
     if (cur) setSelectedLineUi(cur);
   }
 
-  
+  function enablePointClickCycle() {
+    if (!svgRoot) return;
+    svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(el => {
+      if (!isPoint(el)) return;
+      if (el.dataset.boundClick === '1') return;
+      el.dataset.boundClick = '1';
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', (ev) => {
+        const id = el.id;
+        if (!id) return;
 
-// === iOS / Touch / Jump Helpers ==========================================
-function normStationName(s){
-  return String(s || '')
-    .replace(/\u00A0/g,' ')
-    .replace(/\s+/g,' ')
-    .trim();
-}
+        const baseStatus = getLineStatusForElement(el);
+        const cur = selection.overrides[id] || '';
 
-function findPointFromTarget(t){
-  if (!t) return null;
-  let el = t;
-  for (let k=0; k<10 && el; k++){
-    if (el.getAttribute && (el.getAttribute('data-typ') || el.getAttribute('data-type'))) return el;
-    el = el.parentElement;
-  }
-  let sib = t.previousElementSibling;
-  for (let k=0; k<8 && sib; k++){
-    if (sib.getAttribute && (sib.getAttribute('data-typ') || sib.getAttribute('data-type'))) return sib;
-    sib = sib.previousElementSibling;
-  }
-  if (t.parentElement){
-    sib = t.parentElement.previousElementSibling;
-    for (let k=0; k<8 && sib; k++){
-      if (sib.getAttribute && (sib.getAttribute('data-typ') || sib.getAttribute('data-type'))) return sib;
-      sib = sib.previousElementSibling;
-    }
-  }
-  return null;
-}
+        let next = 'neutral';
+        if (cur === '') next = 'neutral';
+        else if (cur === 'neutral') next = 'kundig';
+        else if (cur === 'kundig') next = 'unkundig';
+        else if (cur === 'unkundig') next = '';
 
-function focusElementSmart(el, zoomFactor){
-  try{
-    if (!el || !svgRoot || !view.base) return false;
-    let bb = null;
-    try { bb = el.getBBox(); } catch(e) { bb = null; }
+        if (next === '') delete selection.overrides[id];
+        else selection.overrides[id] = next;
 
-    if ((!bb || (!bb.width && !bb.height)) && el.nextElementSibling){
-      try { bb = el.nextElementSibling.getBBox(); el = el.nextElementSibling; } catch(e) {}
-    }
-    if ((!bb || (!bb.width && !bb.height)) && el.querySelector){
-      const child = el.querySelector('path,circle,ellipse,rect,polygon,polyline,use,text,g');
-      if (child){ try { bb = child.getBBox(); el = child; } catch(e) {} }
-    }
-    if ((!bb || (!bb.width && !bb.height)) && el.parentElement){
-      try { bb = el.parentElement.getBBox(); el = el.parentElement; } catch(e) {}
-    }
-    if (!bb) return false;
+        applySelection();
+        renderActiveLines();
 
-    const cx = bb.x + bb.width/2;
-    const cy = bb.y + bb.height/2;
-    const z = (zoomFactor && zoomFactor > 0) ? zoomFactor : 2;
-    const w = view.base.w / z;
-    const h = view.base.h / z;
-    setViewBox({ x: cx - w/2, y: cy - h/2, w, h });
-    return true;
-  }catch(e){
-    console.warn('focusElementSmart failed', e);
-    return false;
-  }
-}
-
-function findByInkscapeLabel(label){
-  if (!svgRoot) return null;
-  const target = normStationName(label);
-  if (!target) return null;
-  const all = svgRoot.querySelectorAll('*');
-  for (let i=0;i<all.length;i++){
-    const v = normStationName(all[i].getAttribute && all[i].getAttribute('inkscape:label') || '');
-    if (v && v === target) return all[i];
-  }
-  const tu = target.toUpperCase();
-  for (let i=0;i<all.length;i++){
-    const v = normStationName(all[i].getAttribute && all[i].getAttribute('inkscape:label') || '');
-    if (v && v.toUpperCase() === tu) return all[i];
-  }
-  return null;
-}
-
-function focusOnInkscapeLabel(label, zoomFactor){
-  const el = findByInkscapeLabel(label);
-  if (!el) return false;
-  return focusElementSmart(el, zoomFactor);
-}
-
-function zoomAtCenter(scale){
-  if (!svgRoot || !view.cur || !view.base) return;
-  const vb = { ...view.cur };
-  const cx = vb.x + vb.w/2;
-  const cy = vb.y + vb.h/2;
-  const nw = vb.w * scale;
-  const nh = vb.h * scale;
-  const minW = view.base.w * 0.02;
-  const maxW = view.base.w * 20;
-  if (nw < minW || nw > maxW) return;
-  setViewBox({ x: cx - nw/2, y: cy - nh/2, w: nw, h: nh });
-}
-
-function cyclePoint(el){
-  const id = el && el.id ? el.id : '';
-  if (!id) { toast('Punkt hat keine ID (SVG anpassen).'); return; }
-
-  const baseStatus = getLineStatusForElement(el);
-  const cur = selection.overrides[id] || '';
-
-  let next = '';
-  if (cur === '') {
-    next = (baseStatus === 'neutral') ? 'kundig' : 'neutral';
-  } else if (cur === 'neutral') {
-    next = 'kundig';
-  } else if (cur === 'kundig') {
-    next = 'unkundig';
-  } else if (cur === 'unkundig') {
-    next = '';
-  }
-
-  if (next === '') delete selection.overrides[id];
-  else selection.overrides[id] = next;
-
-  applySelection();
-  renderActiveLines();
-
-  const shown = selection.overrides[id] ? selection.overrides[id] : 'Linie';
-  toast(`${id}: ${shown}`);
-}
-
-function jumpToLine(line){
-  const ln = normalizeLine(line);
-  const route = indexData && indexData.routes ? String(indexData.routes[ln] || '').trim() : '';
-  if (!ln || !route) return false;
-  const parts = route.split(' - ').map(normStationName).filter(Boolean);
-  const cand = [];
-  if (parts.length >= 2) cand.push(parts[1]);
-  if (parts.length >= 3) cand.push(parts[2]);
-  if (parts.length >= 1) cand.push(parts[0]);
-
-  for (let i=0;i<cand.length;i++){
-    if (focusOnInkscapeLabel(cand[i], 2.0)) { toast('Sprung: ' + cand[i]); return true; }
-  }
-
-  let first = null;
-  try{
-    svgRoot.querySelectorAll('[data-typ],[data-type]').forEach(p => {
-      if (first) return;
-      if (!isPoint(p)) return;
-      if (matchesAnyLine(p, ln)) first = p;
+        const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
+        toast(`${id}: ${msg}`);
+        ev.stopPropagation();
+      });
     });
-  }catch(e){}
-
-  if (first) { focusElementSmart(first, 2.0); toast('Sprung: Linie ' + ln); return true; }
-  return false;
-}
-
-function enableTouchGestures(){
-  if (!svgRoot) return;
-
-  let mode = 'none';
-  let start = null;
-  let pinch = null;
-  let moved = 0;
-
-  function dist(t1, t2){
-    const dx = t1.clientX - t2.clientX;
-    const dy = t1.clientY - t2.clientY;
-    return Math.sqrt(dx*dx + dy*dy);
   }
-
-  function clientToSvgXY(cx, cy){
-    const pt = svgRoot.createSVGPoint();
-    pt.x = cx; pt.y = cy;
-    const ctm = svgRoot.getScreenCTM();
-    if (!ctm) return {x:0,y:0};
-    const sp = pt.matrixTransform(ctm.inverse());
-    return {x: sp.x, y: sp.y};
-  }
-
-  svgRoot.addEventListener('touchstart', (e)=>{
-    if (!view.cur || !view.base) return;
-    moved = 0;
-
-    if (e.touches.length === 1){
-      mode = 'pan';
-      const t = e.touches[0];
-      start = { x: t.clientX, y: t.clientY, t: Date.now(), vb: { ...view.cur }, target: e.target };
-      pinch = null;
-    } else if (e.touches.length >= 2){
-      mode = 'pinch';
-      const t1 = e.touches[0], t2 = e.touches[1];
-      pinch = { dist: dist(t1,t2), vb: { ...view.cur } };
-      start = null;
-    }
-    e.preventDefault();
-  }, {passive:false});
-
-  svgRoot.addEventListener('touchmove', (e)=>{
-    if (!view.cur || !view.base) return;
-
-    if (mode === 'pan' && start && e.touches.length === 1){
-      const t = e.touches[0];
-      const dx = t.clientX - start.x;
-      const dy = t.clientY - start.y;
-      moved = Math.max(moved, Math.abs(dx) + Math.abs(dy));
-
-      const rect = svgRoot.getBoundingClientRect();
-      const sx = start.vb.w / rect.width;
-      const sy = start.vb.h / rect.height;
-
-      setViewBox({ x: start.vb.x - dx*sx, y: start.vb.y - dy*sy, w: start.vb.w, h: start.vb.h });
-      view.lastGestureTs = Date.now();
-    }
-
-    if (mode === 'pinch' && pinch && e.touches.length >= 2){
-      const t1 = e.touches[0], t2 = e.touches[1];
-      const d = dist(t1,t2);
-      if (d <= 0) return;
-      const scale = pinch.dist / d;
-
-      const vb0 = pinch.vb;
-      const nw = vb0.w * scale;
-      const nh = vb0.h * scale;
-      const minW = view.base.w * 0.02;
-      const maxW = view.base.w * 20;
-      if (nw < minW || nw > maxW) return;
-
-      const mx = (t1.clientX + t2.clientX)/2;
-      const my = (t1.clientY + t2.clientY)/2;
-      const midSvg = clientToSvgXY(mx, my);
-
-      const nx = midSvg.x - (midSvg.x - vb0.x) * (nw / vb0.w);
-      const ny = midSvg.y - (midSvg.y - vb0.y) * (nh / vb0.h);
-
-      setViewBox({ x: nx, y: ny, w: nw, h: nh });
-      view.lastGestureTs = Date.now();
-      moved = Math.max(moved, 20);
-    }
-
-    e.preventDefault();
-  }, {passive:false});
-
-  svgRoot.addEventListener('touchend', (e)=>{
-    try{
-      if (start && mode === 'pan'){
-        const dt = Date.now() - start.t;
-        const wasTap = (moved < 10) && (dt < 350);
-        if (wasTap){
-          const pt = findPointFromTarget(start.target);
-          if (pt && isPoint(pt)) cyclePoint(pt);
-        }
-      }
-    }catch(err){}
-
-    if (e.touches.length === 0){
-      mode = 'none';
-      start = null;
-      pinch = null;
-      moved = 0;
-    }
-
-    e.preventDefault();
-  }, {passive:false});
-}
-
-// ========================================================================
-
-function enablePointClickCycle() {
-  if (!svgRoot) return;
-  // Click für Desktop; auf iOS kommt Tap über enableTouchGestures()
-  svgRoot.addEventListener('click', (ev) => {
-    const nowTs = Date.now();
-    if (view && view.lastGestureTs && (nowTs - view.lastGestureTs) < 250) return;
-    const pt = findPointFromTarget(ev.target);
-    if (pt && isPoint(pt)) cyclePoint(pt);
-  });
-}
 
   function getInitialViewBox(svg) {
     const vb = svg.getAttribute('viewBox');
@@ -999,10 +728,6 @@ function enablePointClickCycle() {
   function resetView() {
     if (!view.base) return;
     setViewBox({ ...view.base });
-        // Startansicht: etwas näher (damit Karte nicht zu klein wirkt)
-        zoomAtCenter(0.6);
-        // Optional: Startpunkt Muttenz
-        try{ const el = svgRoot.querySelector('#station_muttenz'); if (el) focusElementSmart(el, 2.0); }catch(e){}
     toast('Ansicht zurückgesetzt.');
   }
 
@@ -1033,16 +758,11 @@ function enablePointClickCycle() {
 
     view.base = getInitialViewBox(svgRoot);
     setViewBox({ ...view.base });
-        // Startansicht: etwas näher (damit Karte nicht zu klein wirkt)
-        zoomAtCenter(0.6);
-        // Optional: Startpunkt Muttenz
-        try{ const el = svgRoot.querySelector('#station_muttenz'); if (el) focusElementSmart(el, 2.0); }catch(e){}
 
     rebuildRouteList();
     enablePointClickCycle();
     enablePanHandlers();
     enableWheelZoom();
-  enableTouchGestures();
 
     applySelection();
     renderActiveLines();
@@ -1053,7 +773,7 @@ function enablePointClickCycle() {
 }
 
   function setSelectedLineStatus(status) {
-  const line = $('lineSelect').value;
+  const line = ( $('lineSelect') ? $('lineSelect').value : '' );
   if (!line) { toast('Bitte zuerst eine Strecke in der Liste wählen.'); return; }
   const prev = selection.activeLines[line];
   if (status === 'unkundig' && prev === 'kundig') {
@@ -1070,7 +790,7 @@ function enablePointClickCycle() {
 
 
   function removeSelectedLine() {
-    const line = $('lineSelect').value;
+    const line = ( $('lineSelect') ? $('lineSelect').value : '' );
     if (!line) { toast('Bitte zuerst eine Strecke in der Liste wählen.'); return; }
     delete selection.activeLines[line];
     const idx = selection.lineOrder.indexOf(line);
@@ -1125,15 +845,6 @@ function enablePointClickCycle() {
   $('lineOff').addEventListener('click', removeSelectedLine);
   $('resetAll').addEventListener('click', resetAll);
   $('resetView').addEventListener('click', resetView);
- $('jumpLine') && $('jumpLine').addEventListener('click', () => {
-   const line = $('lineSelect').value;
-   if (!line) { toast('Bitte zuerst eine Strecke wählen.'); return; }
-   if (!jumpToLine(line)) toast('Kein Sprungziel gefunden.');
- });
- $('zoomIn') && $('zoomIn').addEventListener('click', () => zoomAtCenter(0.8));
- $('zoomOut') && $('zoomOut').addEventListener('click', () => zoomAtCenter(1.25));
- $('zoomReset') && $('zoomReset').addEventListener('click', () => resetView());
-
 
   
 
@@ -1494,12 +1205,6 @@ rebuildRouteList();
 
       host.innerHTML = '<object id="svgObj" type="image/svg+xml"></object>';
       const obj = document.getElementById('svgObj');
-      // svgObj touch shield (iOS): verhindert Seiten-Zoom auf dem <object>-Element
-      try{
-        obj.style.touchAction = 'none';
-        obj.addEventListener('touchstart', (e)=>{ e.preventDefault(); }, {passive:false});
-        obj.addEventListener('touchmove',  (e)=>{ e.preventDefault(); }, {passive:false});
-      }catch(e){}
       if(!obj) return reject(new Error('svgObj fehlt'));
 
       obj.addEventListener('load', () => {
@@ -1517,15 +1222,10 @@ rebuildRouteList();
 
           view.base = getInitialViewBox(svgRoot);
           setViewBox({ ...view.base });
-        // Startansicht: etwas näher (damit Karte nicht zu klein wirkt)
-        zoomAtCenter(0.6);
-        // Optional: Startpunkt Muttenz
-        try{ const el = svgRoot.querySelector('#station_muttenz'); if (el) focusElementSmart(el, 2.0); }catch(e){}
           rebuildRouteList();
           enablePointClickCycle();
           enablePanHandlers();
           enableWheelZoom();
-  enableTouchGestures();
           applySelection();
           renderActiveLines();
 
