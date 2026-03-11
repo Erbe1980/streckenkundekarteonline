@@ -190,7 +190,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:38 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:45 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
@@ -263,6 +263,11 @@ header{ padding: 10px 12px; }
       <div id="selectedRoute" class="hint"></div>
       <input type="hidden" id="lineSelect" value="" />
   <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
+
+      <div class="btns" style="margin-top:8px;">
+        <button type="button" class="btn" id="resetView">Ansicht zurücksetzen</button>
+        <button type="button" class="btn" id="resetAll">Alles zurücksetzen</button>
+      </div>
 
       <div class="row" style="margin-top:10px; margin-bottom:0;">
         <label>Streckenliste</label>
@@ -865,12 +870,21 @@ function renderOrtskenntnisList() {
     if (curMode && curMode() !== 'einzeln') return;
     const pt = findPointFromTarget(ev.target);
     if (!pt || !isPoint(pt)) return;
-    const st = (curStatus ? curStatus() : 'kundig');
+
+    const order = ['kundig','unkundig','neutral'];
+    let cur = 'neutral';
+    try{
+      if (selection.overrides && selection.overrides[pt.id]) cur = selection.overrides[pt.id];
+      else cur = getLineStatusForElement(pt);
+    }catch(e){}
+    const idx = Math.max(0, order.indexOf(cur));
+    const next = order[(idx + 1) % order.length];
+
     selection.overrides = selection.overrides || {};
-    selection.overrides[pt.id] = st;
+    selection.overrides[pt.id] = next;
     applySelection();
     renderActiveLines();
-    toast(`${pointDisplayName(pt)}: ${st === 'kundig' ? 'kundig' : (st === 'unkundig' ? 'auffrischung' : 'nicht kundig')}`);
+    toast(`${pointDisplayName(pt)}: ${next === 'kundig' ? 'kundig' : (next === 'unkundig' ? 'auffrischung' : 'nicht kundig')}`);
     ev.stopPropagation();
   });
 }
@@ -1063,14 +1077,14 @@ selection.activeLines[line] = status;
   renderOrtskenntnisList();
 }
 
-  $('svgFile').addEventListener('change', async (e) => {
+  var _sf=$('svgFile'); if(_sf) _sf.addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     const txt = await readFileAsText(f);
     embedSvg(txt);
   });
 
-  $('indexFile').addEventListener('change', async (e) => {
+  var _if=$('indexFile'); if(_if) _if.addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     try {
@@ -1089,8 +1103,8 @@ selection.activeLines[line] = status;
     }
   });
 
-  $('resetAll').addEventListener('click', resetAll);
-  $('resetView').addEventListener('click', resetView);
+  var _ra=$('resetAll'); if(_ra) _ra.addEventListener('click', resetAll);
+  var _rv=$('resetView'); if(_rv) _rv.addEventListener('click', resetView);
 
   
 
