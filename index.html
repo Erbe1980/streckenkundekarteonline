@@ -128,6 +128,17 @@ header { flex: 0 0 auto; }
 /* Force: Build/Status immer sichtbar */
 #buildId, #autoloadStatus { display:block !important; }
 
+
+/* === iOS / Touch: Karte separat zoomen & verschieben (nicht die ganze Seite) === */
+.mapWrap, #mapHost, #svgObj, #mapHost svg {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.mapWrap { overscroll-behavior: contain; }
+#mapHost { overflow: hidden; }
+
 </style>
 
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -607,6 +618,8 @@ function renderOrtskenntnisList() {
       el.dataset.boundClick = '1';
       el.style.cursor = 'pointer';
       el.addEventListener('click', (ev) => {
+ const nowTs = Date.now();
+ if (view && view.lastGestureTs && (nowTs - view.lastGestureTs) < 250) { return; }
         const id = el.id;
         if (!id) return;
 
@@ -688,41 +701,124 @@ function renderOrtskenntnisList() {
   }
 
   function enablePanHandlers() {
-    svgRoot.addEventListener('pointerdown', (evt) => {
-      const panAllowed = evt.altKey || evt.button === 1;
-      if (!panAllowed) return;
-      evt.preventDefault();
-      view.panning = true;
-      view.panStart = { x: evt.clientX, y: evt.clientY };
-      view.panViewStart = { ...view.cur };
-      try { svgRoot.setPointerCapture(evt.pointerId); } catch {}
-    });
+  if (!svgRoot) return;
 
-    svgRoot.addEventListener('pointermove', (evt) => {
-      if (!view.panning) return;
-      evt.preventDefault();
-      const dx = evt.clientX - view.panStart.x;
-      const dy = evt.clientY - view.panStart.y;
+  const pointers = new Map(); // pointerId -> {x,y}
+  let pinchStart = null;      // {dist, vb:{...}}
+  let panStart = null;        // {x,y, vb:{...}}
+
+  function getDist(a, b){
+    const dx = a.x - b.x, dy = a.y - b.y;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+  function getMid(a,b){
+    return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 };
+  }
+  function clientToSvg(client){
+    const pt = svgRoot.createSVGPoint();
+    pt.x = client.x; pt.y = client.y;
+    const ctm = svgRoot.getScreenCTM();
+    if (!ctm) return {x:0,y:0};
+    const sp = pt.matrixTransform(ctm.inverse());
+    return { x: sp.x, y: sp.y };
+  }
+
+  // iOS: Standard-Gesten im Kartenbereich unterbinden
+  try { svgRoot.style.touchAction = 'none'; } catch(e) {}
+  svgRoot.addEventListener('touchstart', (e)=>{ e.preventDefault(); }, {passive:false});
+  svgRoot.addEventListener('touchmove',  (e)=>{ e.preventDefault(); }, {passive:false});
+
+  svgRoot.addEventListener('pointerdown', (evt) => {
+    const isMouse = (evt.pointerType === 'mouse');
+    const panAllowedMouse = evt.altKey || evt.button === 1;
+    if (isMouse && !panAllowedMouse) return;
+
+    evt.preventDefault();
+    try { svgRoot.setPointerCapture(evt.pointerId); } catch {}
+    pointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+
+    if (!view.cur || !view.base) return;
+
+    if (pointers.size === 1) {
+      // Start 1-Finger-Pan (Touch) oder Mouse-Pan (mit Alt/Mitteltaste)
+      panStart = { x: evt.clientX, y: evt.clientY, vb: { ...view.cur } };
+      pinchStart = null;
+    } else if (pointers.size === 2) {
+      // Start Pinch
+      const pts = Array.from(pointers.values());
+      const d = getDist(pts[0], pts[1]);
+      pinchStart = { dist: d, vb: { ...view.cur } };
+      panStart = null;
+    }
+  }, {passive:false});
+
+  svgRoot.addEventListener('pointermove', (evt) => {
+    if (!pointers.has(evt.pointerId)) return;
+    evt.preventDefault();
+    pointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+    if (!view.cur || !view.base) return;
+
+    if (pointers.size === 1 && panStart) {
+      const p = pointers.values().next().value;
+      const dx = p.x - panStart.x;
+      const dy = p.y - panStart.y;
+
       const rect = svgRoot.getBoundingClientRect();
-      const sx = view.panViewStart.w / rect.width;
-      const sy = view.panViewStart.h / rect.height;
-      setViewBox({
-        x: view.panViewStart.x - dx * sx,
-        y: view.panViewStart.y - dy * sy,
-        w: view.panViewStart.w,
-        h: view.panViewStart.h
-      });
-    });
+      const sx = panStart.vb.w / rect.width;
+      const sy = panStart.vb.h / rect.height;
 
-    function endPan(evt) {
-      if (!view.panning) return;
-      view.panning = false;
-      try { svgRoot.releasePointerCapture(evt.pointerId); } catch {}
+      setViewBox({
+        x: panStart.vb.x - dx * sx,
+        y: panStart.vb.y - dy * sy,
+        w: panStart.vb.w,
+        h: panStart.vb.h
+      });
+      view.lastGestureTs = Date.now();
     }
 
-    svgRoot.addEventListener('pointerup', endPan);
-    svgRoot.addEventListener('pointercancel', endPan);
+    if (pointers.size === 2 && pinchStart) {
+      const pts = Array.from(pointers.values());
+      const d = getDist(pts[0], pts[1]);
+      if (d <= 0) return;
+
+      const scale = pinchStart.dist / d; // Finger auseinander => d grösser => zoom in
+      const midClient = getMid(pts[0], pts[1]);
+      const midSvg = clientToSvg(midClient);
+
+      const vb0 = pinchStart.vb;
+      const nw = vb0.w * scale;
+      const nh = vb0.h * scale;
+
+      const minW = view.base.w * 0.02;
+      const maxW = view.base.w * 20;
+      if (nw < minW || nw > maxW) return;
+
+      const nx = midSvg.x - (midSvg.x - vb0.x) * (nw / vb0.w);
+      const ny = midSvg.y - (midSvg.y - vb0.y) * (nh / vb0.h);
+
+      setViewBox({ x: nx, y: ny, w: nw, h: nh });
+      view.lastGestureTs = Date.now();
+    }
+  }, {passive:false});
+
+  function endPointer(evt){
+    if (pointers.has(evt.pointerId)) pointers.delete(evt.pointerId);
+    try { svgRoot.releasePointerCapture(evt.pointerId); } catch {}
+
+    if (pointers.size < 2) pinchStart = null;
+    if (pointers.size === 0) panStart = null;
+
+    // Wenn nach Pinch ein Pointer übrig bleibt: neuen Pan-Start setzen
+    if (pointers.size === 1 && view.cur) {
+      const p = pointers.values().next().value;
+      panStart = { x: p.x, y: p.y, vb: { ...view.cur } };
+    }
   }
+
+  svgRoot.addEventListener('pointerup', endPointer, {passive:false});
+  svgRoot.addEventListener('pointercancel', endPointer, {passive:false});
+  svgRoot.addEventListener('pointerleave', endPointer, {passive:false});
+}
 
   function resetView() {
     if (!view.base) return;
@@ -730,7 +826,42 @@ function renderOrtskenntnisList() {
     toast('Ansicht zurückgesetzt.');
   }
 
-  function embedSvg(svgText) {
+  
+function focusOnDataCode(code, zoomFactor){
+  try {
+    if (!svgRoot || !view.base) return false;
+    const target = String(code || '').trim().toUpperCase();
+    if (!target) return false;
+
+    // Safari: Attributselektor case-insensitive nicht überall zuverlässig -> manuell.
+    let el = null;
+    const nodes = svgRoot.querySelectorAll('[data-code]');
+    for (let i = 0; i < nodes.length; i++){
+      const v = String(nodes[i].getAttribute('data-code') || '').trim().toUpperCase();
+      if (v === target) { el = nodes[i]; break; }
+    }
+    if (!el) return false;
+
+    let bb = null;
+    try { bb = el.getBBox(); } catch(e) { bb = null; }
+    if (!bb) return false;
+
+    const cx = bb.x + bb.width / 2;
+    const cy = bb.y + bb.height / 2;
+
+    const z = (zoomFactor && zoomFactor > 0) ? zoomFactor : 2;
+    const w = view.base.w / z;
+    const h = view.base.h / z;
+
+    setViewBox({ x: cx - w/2, y: cy - h/2, w: w, h: h });
+    return true;
+  } catch(e) {
+    console.warn('focusOnDataCode failed', e);
+    return false;
+  }
+}
+
+function embedSvg(svgText) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svgText, 'image/svg+xml');
     const parseError = doc.querySelector('parsererror');
@@ -757,6 +888,8 @@ function renderOrtskenntnisList() {
 
     view.base = getInitialViewBox(svgRoot);
     setViewBox({ ...view.base });
+ // Startansicht: MU auf 200%
+ focusOnDataCode('MU', 2);
 
     rebuildRouteList();
     enablePointClickCycle();
@@ -1221,6 +1354,8 @@ rebuildRouteList();
 
           view.base = getInitialViewBox(svgRoot);
           setViewBox({ ...view.base });
+ // Startansicht: MU auf 200%
+ focusOnDataCode('MU', 2);
           rebuildRouteList();
           enablePointClickCycle();
           enablePanHandlers();
