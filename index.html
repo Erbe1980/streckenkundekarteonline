@@ -79,7 +79,6 @@
  .headerBar input[type=file]{width:100%; box-sizing:border-box; background:#0f1730; color:var(--text); border:1px solid var(--line); padding:8px; border-radius:8px;}
  @media (max-width: 980px){ .headerBar{grid-template-columns:1fr;} }
 
-
 /* --- Ortskenntnis (Tanklager-Attribut / inkscape:label) --- */
 .metaBlock { margin-top: 6px; padding: 8px; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; background: rgba(255,255,255,0.04); }
 .metaTitle { font-weight: 750; margin-bottom: 6px; }
@@ -101,15 +100,11 @@
 }
 .metaSmall { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.35; }
 
-
-
 /* --- App-Modus --- */
 header p{ display:none !important; }
 .zoomHint{ display:none !important; }
 
 /* Upload-Elemente komplett ausblenden (bleiben für JS als hidden Inputs vorhanden) */
-#stateFile{ display:none !important; }
-
 /* --- Layout: Vollhöhe --- */
 *,*::before,*::after{box-sizing:border-box;}
 html, body { height: 100%; }
@@ -123,11 +118,8 @@ header { flex: 0 0 auto; }
 /* Unsichtbarer Fallback-Container */
 #hiddenFileInputs{ position:fixed; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden; }
 
-
-
 /* Force: Build/Status immer sichtbar */
 #buildId, #autoloadStatus { display:block !important; }
-
 
 /* iOS isolate map gestures */
 .mapWrap, #mapHost, #mapHost svg{
@@ -139,8 +131,40 @@ header { flex: 0 0 auto; }
 .mapWrap{ overscroll-behavior: contain; }
 #mapHost{ overflow: hidden; }
 
+/* --- Header Layout (Variante A, Gruppen + Toggle) --- */
+header{ padding: 10px 12px; }
+.headerGrid{ display:grid; grid-template-columns: 1fr 2fr; gap:12px; align-items:start; }
+.headerLeft h1{ margin:0; font-size:16px; font-weight:650; }
+.headerLeft .hint{ margin-top:6px; }
+.headerRight{ display:grid; gap:10px; }
+.personRow{ display:grid; grid-template-columns: 1fr 1fr 160px; gap:8px; }
+.personRow input{ height: 36px; }
 
+.actionsBar{ display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; }
+.actionGroup{ border:1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.05); border-radius:12px; padding:8px; }
+.groupTitle{ font-size:12px; color: var(--muted); margin-bottom:6px; font-weight:650; }
+.groupBtns{ display:flex; gap:8px; }
+
+.iconBtn{ display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:44px; height:40px; padding:0 10px; border-radius:10px; }
+.iconBtn svg{ width:18px; height:18px; fill: currentColor; }
+
+/* Text standardmässig sichtbar (besser verständlich). Toggle kann auf Icons-only wechseln. */
 .btnTxt{ display:inline; font-weight:650; font-size:12px; }
+/* Farbcodes */
+.btnSave{ border-color: rgba(0,112,255,0.70); }
+.btnLoad{ border-color: rgba(0,200,90,0.60); }
+.btnShare{ border-color: rgba(140,90,255,0.60); }
+.btnBrowser{ border-color: rgba(255,255,255,0.18); }
+
+.modeToggle{ height:40px; border-radius:12px; border:1px solid rgba(255,255,255,0.20); background: rgba(255,255,255,0.06); color:var(--text); padding:0 12px; font-weight:700; }
+.modeToggle b{ color:#fff; }
+
+@media (max-width: 980px){
+  .headerGrid{ grid-template-columns: 1fr; }
+  .personRow{ grid-template-columns: 1fr 1fr; }
+  .personRow input[type=date]{ grid-column: 1 / -1; }
+}
+
 </style>
 
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -158,29 +182,44 @@ header { flex: 0 0 auto; }
 </div>
 
 <header>
-  <h1>MEV Streckenkundekarten App</h1>
-  <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-10 17:36 UTC</div>
-  <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
+  <div class="headerGrid">
+    <div class="headerLeft">
+      <h1>MEV Streckenkundekarten App</h1>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 09:03 UTC</div>
+      <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
+    </div>
+    <div class="headerRight">
+      <div class="personRow">
+  <input id="vorname" type="text" autocomplete="given-name" placeholder="Vorname" />
+  <input id="nachname" type="text" autocomplete="family-name" placeholder="Name" />
+  <input id="datum" type="date" />
+ </div>
+
+      <div class="actionsBar"> 
+        <div class="actionGroup">
+          <div class="groupTitle">Datei</div>
+          <div class="groupBtns">
+            <button type=\"button\" class="btn iconBtn btnSave" id="saveJson" title="Speichern (Datei)" aria-label="Speichern (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14l2 2v16H3V3h2zm2 2v6h10V5H7zm0 10v4h10v-4H7z"/></svg><span class="btnTxt">Speichern</span></button>
+            <button type=\"button\" class="btn iconBtn btnLoad" id="loadJson" title="Laden (Datei)" aria-label="Laden (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H9v5H5v13h16V3zm-8 7V5h6v14H7V10h4zm1.5 3V9h-1v4H9.5L12 15.5 14.5 13H12.5z"/></svg><span class="btnTxt">Laden</span></button>
+            <button type=\"button\" class="btn iconBtn btnShare" id="shareJson" title="Teilen…" aria-label="Teilen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 16a3 3 0 0 0-2.4 1.2L8.9 13.7a3.2 3.2 0 0 0 0-3.4l6.7-3.5A3 3 0 1 0 15 5a3 3 0 0 0 .1.7L8.4 9.2a3 3 0 1 0 0 5.6l6.7 3.5A3 3 0 1 0 18 16z"/></svg><span class="btnTxt">Teilen</span></button>
+          </div>
+        </div>
+
+        <div class="actionGroup">
+          <div class="groupTitle">Browser</div>
+          <div class="groupBtns">
+            <button type=\"button\" class="btn iconBtn btnBrowser" id="saveLocal" title="Speichern (Browser)" aria-label="Speichern (Browser)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 4v10h16V8H4zm8 1 3 3h-2v4h-2v-4H9l3-3z"/></svg><span class="btnTxt">Speichern</span></button>
+            <button type=\"button\" class="btn iconBtn btnBrowser" id="loadLocal" title="Laden (Browser)" aria-label="Laden (Browser)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 4v10h16V8H4zm8 8-3-3h2V9h2v4h2l-3 3z"/></svg><span class="btnTxt">Laden</span></button>
+          </div>
+        </div>
+</div>
+    </div>
+  </div>
 </header>
 
 <div class="wrap">
   <section class="panel">
-<h2>Personendaten & Speichern</h2>
- <div class="row">
-   <label>Name</label>
-   <input id="nachname" type="text" autocomplete="family-name" placeholder="Name" />
-   <label>Vorname</label>
-   <input id="vorname" type="text" autocomplete="given-name" placeholder="Vorname" />
-   <label>Datum</label>
-   <input id="datum" type="date" />
- </div>
- <div class="btns" style="margin-top:8px;">
-   <button type=\"button\" class="btn primary full" id="saveJson">Speichern (Datei)</button>
-   <button type=\"button\" class="btn" id="saveLocal">Speichern (Browser)</button>
-   <button type=\"button\" class="btn" id="loadLocal">Laden (Browser)</button>
-   <button class="btn full" id="sendMail">Per E-Mail senden</button>
- </div>
-<div class="hr"></div>
+
 <h2>Strecke wählen & markieren</h2>
     <div class="row">
       <label>Auswahl</label>
@@ -234,7 +273,6 @@ header { flex: 0 0 auto; }
   window.addEventListener('unhandledrejection', (ev) => { try{ setStatus('Promise-Fehler: ' + (ev && ev.reason ? (ev.reason.message || ev.reason) : ev)); }catch(e){} });
   setStatus('JS läuft');
 })();
-
 
   let svgRoot = null;
 
@@ -409,8 +447,6 @@ function enableTouchGestures(){
   }, {passive:false});
 }
 
-
-
   function toast(msg) {
     const t = $("toast");
     t.textContent = msg;
@@ -513,7 +549,6 @@ function enableTouchGestures(){
   if (hasUnkundig) return 'unkundig';
   return 'neutral';
 }
-
 
   function getLabelForEl(el) {
     return (el.getAttribute('inkscape:label') || el.getAttribute('aria-label') || el.getAttribute('data-label') || el.id || '').trim();
@@ -640,7 +675,6 @@ function renderOrtskenntnisList() {
     });
   });
 }
-
 
   function getNeutralOverrideLabelsForLine(line) {
     if (!svgRoot) return [];
@@ -910,18 +944,13 @@ function renderOrtskenntnisList() {
   const line = $('lineSelect').value;
   if (!line) { toast('Bitte zuerst eine Strecke in der Liste wählen.'); return; }
   const prev = selection.activeLines[line];
-  if (status === 'unkundig' && prev === 'kundig') {
-    toast('Kundig hat Vorrang: Linie bleibt kundig.');
-    status = 'kundig';
-  }
-  selection.activeLines[line] = status;
+selection.activeLines[line] = status;
   touchLineOrder(line);
   applySelection();
   renderActiveLines();
 
   renderOrtskenntnisList();
 }
-
 
   function removeSelectedLine() {
     const line = $('lineSelect').value;
@@ -1115,6 +1144,69 @@ function getExportPayload() {
     }
   };
 }
+
+// === Teilen (iOS Share Sheet) / Minimalformat =============================
+function getMinimalPayload(){
+  const n = document.getElementById('nachname') ? String(document.getElementById('nachname').value || '').trim() : '';
+  const v = document.getElementById('vorname') ? String(document.getElementById('vorname').value || '').trim() : '';
+  const d = document.getElementById('datum') ? String(document.getElementById('datum').value || '').trim() : '';
+
+  const active = {};
+  try {
+    (selection.lineOrder || []).forEach(line => {
+      if (selection.activeLines && selection.activeLines[line]) active[line] = selection.activeLines[line];
+    });
+  } catch(e) {}
+
+  return {
+    meta: { nachname: n, vorname: v, datum: d },
+    erzeugtAm: new Date().toISOString(),
+    selection: {
+      activeLines: active,
+      lineOrder: (selection.lineOrder || []).slice(),
+      overrides: selection.overrides || {}
+    }
+  };
+}
+
+function makeFileName(meta){
+  const safe = (s)=> String(s || '').replace(/[^a-zA-Z0-9\-_. ]/g,'').trim().replace(/\s+/g,'_');
+  return ('streckenkundekarte_' + safe(meta.nachname) + '_' + safe(meta.vorname) + '_' + safe(meta.datum) + '.json').replace(/__+/g,'_');
+}
+
+async function shareOrDownloadJson(){
+  const payload = getMinimalPayload();
+  const meta = payload.meta || {};
+  if (!meta.nachname || !meta.vorname || !meta.datum){
+    toast('Bitte Name, Vorname und Datum ausfüllen.');
+    return;
+  }
+
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const fileName = makeFileName(meta);
+  let file = null;
+  try { file = new File([blob], fileName, { type: 'application/json' }); } catch(e) { file = null; }
+
+  try {
+    if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ title: 'Streckenkundekarte', files: [file] });
+      toast('Geteilt.');
+      return;
+    }
+  } catch(e) { console.warn(e); }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast('Datei heruntergeladen (danach in Dateien teilen).');
+}
+
 function downloadJson(payload) {
   var meta = payload.meta || {};
   var fn = 'streckenkundekarte_' + safeFilePart(meta.nachname) + '_' + safeFilePart(meta.vorname) + '_' + safeFilePart(meta.datum) + '.json';
@@ -1177,84 +1269,13 @@ function loadStateFromFile(file) {
     } catch (e) { reject(e); }
   });
 }
-function summarizeForMail(payload) {
-  var meta = payload.meta || {};
-  var act = (payload.selection && payload.selection.activeLines) ? payload.selection.activeLines : {};
-  var keys = Object.keys(act);
-  keys.sort(function(a,b){ return Number(a)-Number(b); });
-  var lines = keys.length ? keys.map(function(k){
-    var raw = act[k];
-    var st = raw === 'kundig' ? 'kundig' : (raw === 'unkundig' ? 'auffrischung' : 'nicht kundig');
-    var missing = [];
-    try {
-      if (typeof getNeutralOverrideLabelsForLine === 'function' && svgRoot) {
-        missing = getNeutralOverrideLabelsForLine(k) || [];
-      }
-    } catch (e) {}
-    if (missing.length) {
-      return k + ': ' + st + ' (nicht vollständig; nicht kundig: ' + missing.join(', ') + ')';
-    }
-    return k + ': ' + st;
-  }).join('\n') : 'Keine Linien markiert.';
-
-  var ov = (payload.selection && payload.selection.overrides) ? payload.selection.overrides : {};
-  var ovKeys = Object.keys(ov);
-  ovKeys.sort();
-  var ovLines = ovKeys.length ? ovKeys.map(function(id){
-    var stRaw = ov[id];
-    var st = stRaw === 'kundig' ? 'kundig' : (stRaw === 'unkundig' ? 'auffrischung' : 'nicht kundig');
-    var label = '';
-    var labelRaw = '';
-    var dataCode = '';
-    var dataLines = [];
-    try {
-      if (svgRoot) {
-        var el = svgRoot.getElementById ? svgRoot.getElementById(id) : null;
-        if (!el) el = document.getElementById(id);
-        if (el) {
-          labelRaw = String(el.getAttribute('inkscape:label') || '').trim();
-          label = labelRaw;
-          if (!label) label = (typeof getLabelForEl === 'function') ? getLabelForEl(el) : (el.id || '');
-          dataCode = String(el.getAttribute('data-code') || '').trim();
-          try {
-            var attrs = el.getAttributeNames ? el.getAttributeNames() : [];
-            for (var i=0;i<attrs.length;i++) {
-              var a = attrs[i];
-              if (a.indexOf('data-line') === 0) {
-                var v = String(el.getAttribute(a) || '').trim();
-                if (v) dataLines.push(a + '=' + v);
-              }
-            }
-          } catch(e) {}
-        }
-      }
-    } catch(e) {}
-    var extra = '';
-    if (labelRaw) extra += ' inkscape:label=' + labelRaw;
-    if (dataCode) extra += (extra ? ' ' : '') + 'data-code=' + dataCode;
-    if (dataLines.length) extra += (extra ? ' ' : '') + dataLines.join(' ');
-    return '- ' + (label || id) + ' [' + id + ']: ' + st + (extra ? ' (' + extra + ')' : '');
-  }).join('\n') : 'Keine.';
-
-  return 'Streckenkundekarte gespeichert\n' +
-    'Name: ' + (meta.nachname || '') + '\n' +
-    'Vorname: ' + (meta.vorname || '') + '\n' +
-    'Datum: ' + (meta.datum || '') + '\n\n' +
-    'Markierte Linien:\n' + lines + '\n\n' +
-    'Punkt-Overrides (manuell):\n' + ovLines + '\n\n' +
-    'Hinweis: Für vollständige Details bitte die JSON-Datei mitsenden.';
-}
-function openMail(payload) {
-  var meta = payload.meta || {};
-  var subj = ('Streckenkundekarte gespeichert - ' + (meta.nachname || '') + ' ' + (meta.vorname || '') + ' - ' + (meta.datum || '')).trim();
-  var body = summarizeForMail(payload);
-  window.location.href = 'mailto:?subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(body);
-}
 
 window.addEventListener('load', function(){
   try {
     var d = $('datum');
     if (d && !d.value) d.value = todayISO();
+
+ 
   } catch (e) {}
 
   var b1 = $('saveJson');
@@ -1265,6 +1286,15 @@ window.addEventListener('load', function(){
     downloadJson(payload);
     toast('Streckenkundekarte gespeichert (Datei).');
   });
+
+ // Laden (Datei): öffnet Dateiauswahl (stateFile)
+ var bl = $('loadJson');
+ var sf = $('stateFile');
+ if (bl && sf) bl.addEventListener('click', function(ev){ ev.preventDefault(); try{ sf.value=''; }catch(e){} sf.click(); });
+
+ // Teilen…
+ var bs = $('shareJson');
+ if (bs) bs.addEventListener('click', function(ev){ ev.preventDefault(); shareOrDownloadJson(); });
 
   var b2 = $('saveLocal');
   if (b2) b2.addEventListener('click', function(){
@@ -1280,16 +1310,7 @@ window.addEventListener('load', function(){
     if (applyLoadedPayload(payload)) toast('Streckenkundekarte geladen.');
     else toast('Gespeicherte Daten sind ungültig.');
   });
-
-  var b4 = $('sendMail');
-  if (b4) b4.addEventListener('click', function(){
-    var payload = getExportPayload();
-    var meta = payload.meta;
-    if (!meta.nachname || !meta.vorname || !meta.datum) { toast('Bitte Name, Vorname und Datum ausfüllen.'); return; }
-    openMail(payload);
-  });
-
-  var sf = $('stateFile');
+var sf = $('stateFile');
   if (sf) sf.addEventListener('change', function(ev){
     var f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
     if (!f) return;
@@ -1304,7 +1325,6 @@ window.addEventListener('load', function(){
 });
 
 rebuildRouteList();
-
 
 // === AUTOLOAD_APP_V9 ====================================================
 (function(){
@@ -1385,7 +1405,7 @@ function abs(rel){
   async function autoload(){
  if (done) return;
  if (isEditing()) return;
-    if(running) return;
+ if(running) return;
     running = true;
     try{
       try{ await loadIndex(); } catch(e){ setStatus('Index übersprungen'); }
@@ -1393,6 +1413,7 @@ function abs(rel){
       await loadSvgViaObject();
       setStatus('fertig');
  done = true;
+ window.__autoloadDone = true;
     } catch(e){
       setStatus('Fehler: ' + (e && e.message ? e.message : e));
       const host = document.getElementById('mapHost');
