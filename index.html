@@ -128,6 +128,17 @@ header { flex: 0 0 auto; }
 /* Force: Build/Status immer sichtbar */
 #buildId, #autoloadStatus { display:block !important; }
 
+
+/* iOS isolate map gestures */
+.mapWrap, #mapHost, #mapHost svg{
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.mapWrap{ overscroll-behavior: contain; }
+#mapHost{ overflow: hidden; }
+
 </style>
 
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -174,7 +185,7 @@ header { flex: 0 0 auto; }
  </div>
  <div class="hint" style="margin-top:6px;">
    <b>Hinweis:</b> "Speichern (Datei)" lädt eine JSON-Datei herunter (inkl. Linienstatus und Punkt-Overrides).
-   "Per E-Mail senden" öffnet dein Mailprogramm über <code>mailto:</code> (ohne Anhang, dafür mit Zusammenfassung).
+   "Teilen…" öffnet das Teilen-Menü (Share Sheet) oder lädt die Datei herunter.
  </div>
 
 
@@ -270,6 +281,167 @@ header { flex: 0 0 auto; }
   };
 
   const $ = (id) => document.getElementById(id);
+
+// === iOS: Tap auf sichtbaren <path> -> Marker-Element finden (data-typ/data-type) ===
+function findPointFromTarget(t){
+  if (!t) return null;
+  // 1) target/parents
+  let el = t;
+  for (let k=0; k<12 && el; k++){
+    if (el.getAttribute && (el.getAttribute('data-typ') || el.getAttribute('data-type'))) return el;
+    el = el.parentElement;
+  }
+  // 2) vorherige Geschwister (Inkscape: Marker steht oft direkt vor dem sichtbaren <path>)
+  let sib = t.previousElementSibling;
+  for (let k=0; k<10 && sib; k++){
+    if (sib.getAttribute && (sib.getAttribute('data-typ') || sib.getAttribute('data-type'))) return sib;
+    sib = sib.previousElementSibling;
+  }
+  // 3) parent -> vorherige Geschwister
+  if (t.parentElement){
+    sib = t.parentElement.previousElementSibling;
+    for (let k=0; k<10 && sib; k++){
+      if (sib.getAttribute && (sib.getAttribute('data-typ') || sib.getAttribute('data-type'))) return sib;
+      sib = sib.previousElementSibling;
+    }
+  }
+  return null;
+}
+
+// === iOS: Pinch-Zoom + 1-Finger-Pan (nur SVG) + Tap (ohne click-Abhängigkeit) ===
+function enableTouchGestures(){
+  if (!svgRoot) return;
+
+  let mode = 'none';
+  let pan = null;   // {x,y,vb,target,t}
+  let pinch = null; // {dist,vb}
+  let moved = 0;
+
+  function dist(a,b){
+    const dx = a.clientX - b.clientX;
+    const dy = a.clientY - b.clientY;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+
+  function clientToSvgXY(cx, cy){
+    const pt = svgRoot.createSVGPoint();
+    pt.x = cx; pt.y = cy;
+    const ctm = svgRoot.getScreenCTM();
+    if (!ctm) return {x:0,y:0};
+    const sp = pt.matrixTransform(ctm.inverse());
+    return {x: sp.x, y: sp.y};
+  }
+
+  svgRoot.addEventListener('touchstart', (e)=>{
+    if (!view.cur || !view.base) return;
+    moved = 0;
+
+    if (e.touches.length === 1){
+      mode = 'pan';
+      const t = e.touches[0];
+      pan = { x: t.clientX, y: t.clientY, vb: { ...view.cur }, target: e.target, t: Date.now() };
+      pinch = null;
+    } else if (e.touches.length >= 2){
+      mode = 'pinch';
+      pinch = { dist: dist(e.touches[0], e.touches[1]), vb: { ...view.cur } };
+      pan = null;
+      moved = 20;
+    }
+
+    // verhindert Seiten-Zoom
+    e.preventDefault();
+  }, {passive:false});
+
+  svgRoot.addEventListener('touchmove', (e)=>{
+    if (!view.cur || !view.base) return;
+
+    if (mode === 'pan' && pan && e.touches.length === 1){
+      const t = e.touches[0];
+      const dx = t.clientX - pan.x;
+      const dy = t.clientY - pan.y;
+      moved = Math.max(moved, Math.abs(dx) + Math.abs(dy));
+
+      const rect = svgRoot.getBoundingClientRect();
+      const sx = pan.vb.w / rect.width;
+      const sy = pan.vb.h / rect.height;
+
+      setViewBox({
+        x: pan.vb.x - dx * sx,
+        y: pan.vb.y - dy * sy,
+        w: pan.vb.w,
+        h: pan.vb.h
+      });
+    }
+
+    if (mode === 'pinch' && pinch && e.touches.length >= 2){
+      const d = dist(e.touches[0], e.touches[1]);
+      if (d <= 0) return;
+      const scale = pinch.dist / d; // Finger auseinander => d grösser => zoom in
+
+      const vb0 = pinch.vb;
+      const nw = vb0.w * scale;
+      const nh = vb0.h * scale;
+      const minW = view.base.w * 0.02;
+      const maxW = view.base.w * 20;
+      if (nw < minW || nw > maxW) return;
+
+      const mx = (e.touches[0].clientX + e.touches[1].clientX)/2;
+      const my = (e.touches[0].clientY + e.touches[1].clientY)/2;
+      const mid = clientToSvgXY(mx, my);
+
+      const nx = mid.x - (mid.x - vb0.x) * (nw / vb0.w);
+      const ny = mid.y - (mid.y - vb0.y) * (nh / vb0.h);
+
+      setViewBox({ x: nx, y: ny, w: nw, h: nh });
+      moved = Math.max(moved, 20);
+    }
+
+    e.preventDefault();
+  }, {passive:false});
+
+  svgRoot.addEventListener('touchend', (e)=>{
+    try{
+      // Tap: kurzer Touch ohne Bewegung
+      if (mode === 'pan' && pan){
+        const dt = Date.now() - pan.t;
+        const wasTap = (moved < 10) && (dt < 350);
+        if (wasTap){
+          const pt = findPointFromTarget(pan.target);
+          if (pt && isPoint(pt)) {
+            // gleiche Logik wie click auf Punkt
+            const id = pt.id;
+            if (id){
+              const baseStatus = getLineStatusForElement(pt);
+              const cur = selection.overrides[id] || '';
+              let next = 'neutral';
+              if (cur === '') next = 'neutral';
+              else if (cur === 'neutral') next = 'kundig';
+              else if (cur === 'kundig') next = 'unkundig';
+              else if (cur === 'unkundig') next = '';
+              if (next === '') delete selection.overrides[id];
+              else selection.overrides[id] = next;
+              applySelection();
+              renderActiveLines();
+              const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
+              toast(`${id}: ${msg}`);
+            }
+          }
+        }
+      }
+    } catch(e) {}
+
+    if (e.touches.length === 0){
+      mode = 'none';
+      pan = null;
+      pinch = null;
+      moved = 0;
+    }
+
+    e.preventDefault();
+  }, {passive:false});
+}
+
+
 
   function toast(msg) {
     const t = $("toast");
@@ -600,37 +772,33 @@ function renderOrtskenntnisList() {
   }
 
   function enablePointClickCycle() {
-    if (!svgRoot) return;
-    svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(el => {
-      if (!isPoint(el)) return;
-      if (el.dataset.boundClick === '1') return;
-      el.dataset.boundClick = '1';
-      el.style.cursor = 'pointer';
-      el.addEventListener('click', (ev) => {
-        const id = el.id;
-        if (!id) return;
+ if (!svgRoot) return;
+ // Delegierter Click: auch wenn sichtbarer <path> getroffen wird
+ svgRoot.addEventListener('click', (ev) => {
+   const pt = findPointFromTarget(ev.target);
+   if (!pt || !isPoint(pt)) return;
+   const id = pt.id;
+   if (!id) return;
 
-        const baseStatus = getLineStatusForElement(el);
-        const cur = selection.overrides[id] || '';
+   const baseStatus = getLineStatusForElement(pt);
+   const cur = selection.overrides[id] || '';
+   let next = 'neutral';
+   if (cur === '') next = 'neutral';
+   else if (cur === 'neutral') next = 'kundig';
+   else if (cur === 'kundig') next = 'unkundig';
+   else if (cur === 'unkundig') next = '';
 
-        let next = 'neutral';
-        if (cur === '') next = 'neutral';
-        else if (cur === 'neutral') next = 'kundig';
-        else if (cur === 'kundig') next = 'unkundig';
-        else if (cur === 'unkundig') next = '';
+   if (next === '') delete selection.overrides[id];
+   else selection.overrides[id] = next;
 
-        if (next === '') delete selection.overrides[id];
-        else selection.overrides[id] = next;
+   applySelection();
+   renderActiveLines();
+   const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
+   toast(`${id}: ${msg}`);
 
-        applySelection();
-        renderActiveLines();
-
-        const msg = selection.overrides[id] || (baseStatus === 'neutral' ? 'Linie' : (baseStatus === 'kundig' ? 'Linie kundig' : 'Linie auffrischung'));
-        toast(`${id}: ${msg}`);
-        ev.stopPropagation();
-      });
-    });
-  }
+   ev.stopPropagation();
+ });
+}
 
   function getInitialViewBox(svg) {
     const vb = svg.getAttribute('viewBox');
@@ -762,6 +930,7 @@ function renderOrtskenntnisList() {
     enablePointClickCycle();
     enablePanHandlers();
     enableWheelZoom();
+ enableTouchGestures();
 
     applySelection();
     renderActiveLines();
@@ -1192,44 +1361,19 @@ rebuildRouteList();
   }
 
   function loadSvgViaObject(){
-    return new Promise((resolve, reject) => {
-      const host = document.getElementById('mapHost');
-      if(!host) return reject(new Error('mapHost fehlt'));
+  return new Promise(async (resolve, reject) => {
+    try{
+      const url = abs('assets/map.svg');
+      const r = await fetch(url, { cache:'no-store' });
+      if(!r.ok) throw new Error('SVG HTTP ' + r.status);
+      const txt = await r.text();
+      embedSvg(txt);
+      // embedSvg initialisiert alles synchron; kleiner Tick für iOS
+      setTimeout(resolve, 0);
+    } catch(e){ reject(e); }
+  });
+}
 
-      host.innerHTML = '<object id="svgObj" type="image/svg+xml"></object>';
-      const obj = document.getElementById('svgObj');
-      if(!obj) return reject(new Error('svgObj fehlt'));
-
-      obj.addEventListener('load', () => {
-        try{
-          const doc = obj.contentDocument;
-          if(!doc) throw new Error('contentDocument leer');
-          const svg = doc.querySelector('svg');
-          if(!svg) throw new Error('keine <svg>-Wurzel');
-
-          svgRoot = svg;
-          svgRoot.style.width = '100%';
-          svgRoot.style.height = '100%';
-          svgRoot.style.display = 'block';
-          svgRoot.style.maxWidth = '100%';
-
-          view.base = getInitialViewBox(svgRoot);
-          setViewBox({ ...view.base });
-          rebuildRouteList();
-          enablePointClickCycle();
-          enablePanHandlers();
-          enableWheelZoom();
-          applySelection();
-          renderActiveLines();
-
-          resolve();
-        } catch(e){ reject(e); }
-      });
-      obj.addEventListener('error', () => reject(new Error('object load error')));
-
-      obj.data = abs('assets/map.svg');
-    });
-  }
 
   let running = false;
   async function autoload(){
