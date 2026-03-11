@@ -131,7 +131,7 @@ header { flex: 0 0 auto; }
 .mapWrap{ overscroll-behavior: contain; }
 #mapHost{ overflow: hidden; }
 
-/* --- Header Layout (Variante A, Gruppen) --- */
+/* --- Header Layout (Variante A, Gruppen + Toggle) --- */
 header{ padding: 10px 12px; }
 .headerGrid{ display:grid; grid-template-columns: 1fr 2fr; gap:12px; align-items:start; }
 .headerLeft h1{ margin:0; font-size:16px; font-weight:650; }
@@ -141,23 +141,25 @@ header{ padding: 10px 12px; }
 .personRow input{ height: 36px; }
 
 .actionsBar{ display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; }
-.actionGroup{ border:1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04); border-radius:12px; padding:8px; }
+.actionGroup{ border:1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.05); border-radius:12px; padding:8px; }
 .groupTitle{ font-size:12px; color: var(--muted); margin-bottom:6px; font-weight:650; }
 .groupBtns{ display:flex; gap:8px; }
 
 .iconBtn{ display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:44px; height:40px; padding:0 10px; border-radius:10px; }
 .iconBtn svg{ width:18px; height:18px; fill: currentColor; }
 
-.btnTxt{ display:none; font-weight:650; font-size:12px; }
-.actionsBar[data-mode="text"] .btnTxt{ display:inline; }
-
-.modeSelect{ height:40px; border-radius:10px; border:1px solid rgba(255,255,255,0.14); background:#0f1730; color:var(--text); padding:0 10px; }
+/* Text standardmässig sichtbar (besser verständlich). Toggle kann auf Icons-only wechseln. */
+.btnTxt{ display:inline; font-weight:650; font-size:12px; }
+.actionsBar[data-mode="icons"] .btnTxt{ display:none; }
 
 /* Farbcodes */
-.btnSave{ border-color: rgba(0,112,255,0.65); }
-.btnLoad{ border-color: rgba(0,200,90,0.55); }
-.btnShare{ border-color: rgba(140,90,255,0.55); }
+.btnSave{ border-color: rgba(0,112,255,0.70); }
+.btnLoad{ border-color: rgba(0,200,90,0.60); }
+.btnShare{ border-color: rgba(140,90,255,0.60); }
 .btnBrowser{ border-color: rgba(255,255,255,0.18); }
+
+.modeToggle{ height:40px; border-radius:12px; border:1px solid rgba(255,255,255,0.20); background: rgba(255,255,255,0.06); color:var(--text); padding:0 12px; font-weight:700; }
+.modeToggle b{ color:#fff; }
 
 @media (max-width: 980px){
   .headerGrid{ grid-template-columns: 1fr; }
@@ -185,7 +187,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 08:46 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 08:50 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
     </div>
     <div class="headerRight">
@@ -195,12 +197,12 @@ header{ padding: 10px 12px; }
         <input id="datum" type="date" />
       </div>
 
-      <div class="actionsBar" data-mode="icons"> 
+      <div class="actionsBar" data-mode="text"> 
         <div class="actionGroup">
           <div class="groupTitle">Datei</div>
           <div class="groupBtns">
             <button class="btn iconBtn btnSave" id="saveJson" title="Speichern (Datei)" aria-label="Speichern (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14l2 2v16H3V3h2zm2 2v6h10V5H7zm0 10v4h10v-4H7z"/></svg><span class="btnTxt">Speichern</span></button>
-            <button class="btn iconBtn btnLoad" id="loadJson" title="Laden (Datei)" aria-label="Laden (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H9v5H5v13h16V3zm-8 7V5h6v14H7V10h4zm-1 1h4l-2 2-2-2z"/></svg><span class="btnTxt">Laden</span></button>
+            <button class="btn iconBtn btnLoad" id="loadJson" title="Laden (Datei)" aria-label="Laden (Datei)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H9v5H5v13h16V3zm-8 7V5h6v14H7V10h4zm1.5 3V9h-1v4H9.5L12 15.5 14.5 13H12.5z"/></svg><span class="btnTxt">Laden</span></button>
             <button class="btn iconBtn btnShare" id="shareJson" title="Teilen…" aria-label="Teilen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 16a3 3 0 0 0-2.4 1.2L8.9 13.7a3.2 3.2 0 0 0 0-3.4l6.7-3.5A3 3 0 1 0 15 5a3 3 0 0 0 .1.7L8.4 9.2a3 3 0 1 0 0 5.6l6.7 3.5A3 3 0 1 0 18 16z"/></svg><span class="btnTxt">Teilen</span></button>
           </div>
         </div>
@@ -213,10 +215,7 @@ header{ padding: 10px 12px; }
           </div>
         </div>
 
-        <select id="actionModeSelect" class="modeSelect" title="Anzeige" aria-label="Anzeige">
-          <option value="icons">Icons</option>
-          <option value="text">Icons + Text</option>
-        </select>
+        <button class="modeToggle" id="actionModeToggle" title="Anzeige umschalten" aria-label="Anzeige umschalten">Modus: <b>Text</b></button>
       </div>
     </div>
   </div>
@@ -1212,13 +1211,19 @@ async function shareOrDownloadJson(){
   toast('Datei heruntergeladen (danach in Dateien teilen).');
 }
 
-function wireActionMode(){
+function wireActionModeToggle(){
   const bar = document.querySelector('.actionsBar');
-  const sel = document.getElementById('actionModeSelect');
-  if (!bar || !sel) return;
-  const apply = () => { bar.setAttribute('data-mode', sel.value); };
-  sel.addEventListener('change', apply);
-  apply();
+  const btn = document.getElementById('actionModeToggle');
+  if (!bar || !btn) return;
+  const apply = (mode) => {
+    bar.setAttribute('data-mode', mode);
+    btn.innerHTML = 'Modus: <b>' + (mode === 'icons' ? 'Icons' : 'Text') + '</b>';
+  };
+  btn.addEventListener('click', () => {
+    const cur = bar.getAttribute('data-mode') || 'text';
+    apply(cur === 'icons' ? 'text' : 'icons');
+  });
+  apply(bar.getAttribute('data-mode') || 'text');
 }
 function downloadJson(payload) {
   var meta = payload.meta || {};
@@ -1288,7 +1293,7 @@ window.addEventListener('load', function(){
     var d = $('datum');
     if (d && !d.value) d.value = todayISO();
 
- wireActionMode();
+ wireActionModeToggle();
   } catch (e) {}
 
   var b1 = $('saveJson');
