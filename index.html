@@ -190,7 +190,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 13:06 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 13:20 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
@@ -420,13 +420,12 @@ function enableTouchGestures(){
     moved = 0;
 
     if (curMode && curMode() === 'wischen'){
-      // Karte fixiert: nur markieren
       if (e.touches.length === 1){
         mode = 'mark';
         markSet = new Set();
         lastMarkTs = 0;
         const t = e.touches[0];
-        const pt = pointFromClientXYRadius(t.clientX, t.clientY, 30);
+        const pt = pointFromClientXYRadius(t.clientX, t.clientY, 24);
         if (pt) markPoint(pt);
         moved = 20;
       }
@@ -434,7 +433,6 @@ function enableTouchGestures(){
       return;
     }
 
-    // Einzeln/Linien: Pan/Pinch aktiv
     if (e.touches.length === 1){
       mode = 'pan';
       const t = e.touches[0];
@@ -454,7 +452,7 @@ function enableTouchGestures(){
 
     if (mode === 'mark' && e.touches.length === 1){
       const t = e.touches[0];
-      const pt = pointFromClientXYRadius(t.clientX, t.clientY, 30);
+      const pt = pointFromClientXYRadius(t.clientX, t.clientY, 24);
       if (pt) markPoint(pt);
       e.preventDefault();
       return;
@@ -508,11 +506,11 @@ function enableTouchGestures(){
       return;
     }
 
-    // Tap für Modus Einzeln: setzt den gewählten Status
+    // Tap Einzeln: setzt den gewählten Status
     try{
       if (pan && (Date.now() - pan.t) < 350 && moved < 10){
         if (curMode && curMode() === 'einzeln'){
-          const pt = pointFromClientXYRadius(pan.x, pan.y, 16) || findPointFromTarget(pan.target);
+          const pt = pointFromClientXYRadius(pan.x, pan.y, 14) || findPointFromTarget(pan.target);
           if (pt && isPoint(pt)) setPointStatus(pt);
         }
       }
@@ -930,7 +928,20 @@ function renderOrtskenntnisList() {
     return { x: 0, y: 0, w: w, h: h };
   }
 
-  function setViewBox(vb) {
+  function applyInitialZoom(){
+  // 2x Zoom beim ersten Laden, oben ausrichten
+  try{
+    if (!view.base) return;
+    const z = 2.0;
+    const w = view.base.w / z;
+    const h = view.base.h / z;
+    const x = view.base.x + (view.base.w - w) / 2;
+    const y = view.base.y;
+    setViewBox({ x: x, y: y, w: w, h: h });
+  }catch(e){}
+}
+
+function setViewBox(vb) {
     if (!svgRoot) return;
     svgRoot.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
     view.cur = vb;
@@ -1034,6 +1045,7 @@ function renderOrtskenntnisList() {
 
     view.base = getInitialViewBox(svgRoot);
     setViewBox({ ...view.base });
+    applyInitialZoom();
 
     rebuildRouteList();
     enablePointClickCycle();
