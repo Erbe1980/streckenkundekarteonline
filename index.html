@@ -184,7 +184,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:38 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 11:42 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> initialisiert</div>
     </div>
     <div class="headerRight">
@@ -962,39 +962,16 @@ function renderOrtskenntnisList() {
   renderOrtskenntnisList();
 }
 
-// === Sprung zu Strecke (BBox) =============================================
+// === Sprung zu Strecke (BBox-Cache) =======================================
+var lineBBoxByLine = {}; // { line: {x,y,width,height} }
+
 function _extractLineTokens(val){
   const s = String(val || '');
   const m = s.match(/\d+/g);
   return m ? m : [];
 }
 
-function matchesLineForJump(el, lineDigits){
-  const target = String(lineDigits || '').replace(/\D+/g,'');
-  if (!target) return false;
-  try{
-    const attrs = el.getAttributeNames ? el.getAttributeNames() : [];
-    for (let i=0;i<attrs.length;i++){
-      const a = attrs[i];
-      if (!a.startsWith('data-line')) continue;
-      const tokens = _extractLineTokens(el.getAttribute(a));
-      if (tokens.includes(target)) return true;
-    }
-  }catch(e){}
-  return false;
-}
-
-function unionBBox(a, b){
-  if (!a) return b;
-  if (!b) return a;
-  const x1 = Math.min(a.x, b.x);
-  const y1 = Math.min(a.y, b.y);
-  const x2 = Math.max(a.x + a.width,  b.x + b.width);
-  const y2 = Math.max(a.y + a.height, b.y + b.height);
-  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
-}
-
-function pointBBoxFast(el){
+function _pointBBoxFast(el){
   try{
     const tag = (el.tagName || '').toLowerCase();
     if (tag === 'circle'){
@@ -1010,25 +987,44 @@ function pointBBoxFast(el){
   try{ return el.getBBox(); }catch(e){ return null; }
 }
 
-function getLineBBox(line){
-  if (!svgRoot) return null;
-  const ln = String(line || '').trim();
-  if (!ln) return null;
-  let bb = null;
+function _unionBBox(a, b){
+  if (!a) return b;
+  if (!b) return a;
+  const x1 = Math.min(a.x, b.x);
+  const y1 = Math.min(a.y, b.y);
+  const x2 = Math.max(a.x + a.width,  b.x + b.width);
+  const y2 = Math.max(a.y + a.height, b.y + b.height);
+  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+}
+
+function buildLineBBoxCache(){
+  lineBBoxByLine = {};
+  if (!svgRoot) return;
   try{
-    svgRoot.querySelectorAll('[data-typ], [data-type]').forEach(el => {
+    const els = svgRoot.querySelectorAll('[data-typ], [data-type]');
+    els.forEach(el => {
       if (!isPoint(el)) return;
-      if (!matchesLineForJump(el, ln)) return;
-      const b = pointBBoxFast(el);
-      if (b && isFinite(b.width) && isFinite(b.height)) bb = unionBBox(bb, b);
+      const b = _pointBBoxFast(el);
+      if (!b) return;
+      const attrs = el.getAttributeNames ? el.getAttributeNames() : [];
+      for (let i=0;i<attrs.length;i++){
+        const a = attrs[i];
+        if (!a.startsWith('data-line')) continue;
+        const tokens = _extractLineTokens(el.getAttribute(a));
+        for (let t=0;t<tokens.length;t++){
+          const ln = tokens[t];
+          if (!ln) continue;
+          lineBBoxByLine[ln] = _unionBBox(lineBBoxByLine[ln], b);
+        }
+      }
     });
   }catch(e){}
-  return bb;
 }
 
 function zoomToLine(line, zoomMul){
   if (!svgRoot || !view.base) return;
-  const bb = getLineBBox(line);
+  const ln = String(line || '').replace(/\D+/g,'');
+  const bb = lineBBoxByLine[ln];
   if (!bb) { toast('Keine Punkte für diese Strecke gefunden.'); return; }
 
   const pad = Math.max(bb.width, bb.height) * 0.20;
@@ -1398,33 +1394,32 @@ function restoreMeta(){
 }
 
 function wireUi(){
-  // Jump buttons
+  // Jump
   var btnJump = $('jumpToLine');
   var btnFit  = $('jumpFit');
   var selZoom = $('jumpZoom');
-
   if (btnJump && !btnJump.dataset.bound){
-    btnJump.dataset.bound = '1';
+    btnJump.dataset.bound='1';
     btnJump.addEventListener('click', function(){
       var ln = $('lineSelect') ? $('lineSelect').value : '';
       if (!ln) { toast('Bitte zuerst eine Strecke wählen.'); return; }
       var zm = selZoom ? Number(selZoom.value || '1.3') : 1.3;
-      zoomToLine(ln, zm);
+      
     });
   }
   if (btnFit && !btnFit.dataset.bound){
-    btnFit.dataset.bound = '1';
+    btnFit.dataset.bound='1';
     btnFit.addEventListener('click', function(){
       var ln = $('lineSelect') ? $('lineSelect').value : '';
       if (!ln) { resetView(); return; }
-      zoomToLine(ln, 1.0);
+      
     });
   }
 
-  // Datei buttons
+  // Datei
   var bFileSave = $('saveJson');
   if (bFileSave && !bFileSave.dataset.bound){
-    bFileSave.dataset.bound = '1';
+    bFileSave.dataset.bound='1';
     bFileSave.addEventListener('click', function(ev){
       ev.preventDefault();
       var payload = getExportPayload();
@@ -1434,31 +1429,29 @@ function wireUi(){
       toast('Datei gespeichert.');
     });
   }
-
   var bFileLoad = $('loadJson');
   var sf = $('stateFile');
   if (bFileLoad && sf && !bFileLoad.dataset.bound){
-    bFileLoad.dataset.bound = '1';
+    bFileLoad.dataset.bound='1';
     bFileLoad.addEventListener('click', function(ev){
       ev.preventDefault();
       try{ sf.value=''; }catch(e){}
       sf.click();
     });
   }
-
   var bShare = $('shareJson');
   if (bShare && !bShare.dataset.bound){
-    bShare.dataset.bound = '1';
+    bShare.dataset.bound='1';
     bShare.addEventListener('click', function(ev){
       ev.preventDefault();
       shareOrDownloadJson();
     });
   }
 
-  // Browser buttons
+  // Browser
   var bBS = $('saveBrowser');
   if (bBS && !bBS.dataset.bound){
-    bBS.dataset.bound = '1';
+    bBS.dataset.bound='1';
     bBS.addEventListener('click', function(ev){
       ev.preventDefault();
       var payload = getExportPayload();
@@ -1470,7 +1463,7 @@ function wireUi(){
   }
   var bBL = $('loadBrowser');
   if (bBL && !bBL.dataset.bound){
-    bBL.dataset.bound = '1';
+    bBL.dataset.bound='1';
     bBL.addEventListener('click', function(ev){
       ev.preventDefault();
       var payload = loadFromBrowser();
