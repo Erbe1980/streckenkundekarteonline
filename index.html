@@ -164,6 +164,13 @@ header{ padding: 10px 12px; }
   .personRow input[type=date]{ grid-column: 1 / -1; }
 }
 
+.swipeBtn{ border-color: rgba(255,255,255,0.18); }
+.swipeBtn.active{ outline: 2px solid rgba(0,112,255,0.55); }
+.swipeBtn[data-swipe="kundig"].active{ outline-color: rgba(0,112,255,0.75); }
+.swipeBtn[data-swipe="unkundig"].active{ outline-color: rgba(255,42,42,0.70); }
+.swipeBtn[data-swipe="neutral"].active{ outline-color: rgba(255,255,255,0.35); }
+.swipeBtn[data-swipe="clear"].active{ outline-color: rgba(0,200,90,0.55); }
+
 </style>
 
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -184,7 +191,7 @@ header{ padding: 10px 12px; }
   <div class="headerGrid">
     <div class="headerLeft">
       <h1>MEV Streckenkundekarten App</h1>
-      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:05 UTC</div>
+      <div class="hint" id="buildId" style="margin-top:6px; display:block; opacity:0.95;">Build: 2026-03-11 12:11 UTC</div>
       <div class="hint" id="autoloadStatus" style="margin-top:6px; display:block;"><b>Autoload:</b> warte auf Personendaten …</div>
     </div>
     <div class="headerRight">
@@ -233,19 +240,23 @@ header{ padding: 10px 12px; }
   <div id="metaForSelectedLine" class="hint" style="margin-top:6px;"></div>
   <div class="row" style="margin-top:8px; margin-bottom:0;">
     <label>Wischmodus</label>
+
     <label style="display:flex; gap:8px; align-items:center; margin:0;">
-      <input id="swipeMark" type="checkbox" style="width:auto;"> Stationen mit Wischen markieren
+      <input id="swipeMark" type="checkbox" style="width:auto;"> Markieren mit Wischen
     </label>
-    <div style="display:flex; gap:8px; align-items:center;">
-      <label style="margin:0; min-width:88px;">Markierung</label>
-      <select id="swipeStatus" style="flex:1; background:#0f1730; color:var(--text); border:1px solid var(--line); padding:8px; border-radius:8px;">
-        <option value="kundig" selected>Kundig (blau)</option>
-        <option value="unkundig">Auffrischung (rot)</option>
-        <option value="neutral">Neutral</option>
-        <option value="clear">Linie (Override entfernen)</option>
-      </select>
+
+    <label style="display:flex; gap:8px; align-items:center; margin:0;">
+      <input id="lockMap" type="checkbox" style="width:auto;"> Karte fixieren (nicht verschieben/zoomen)
+    </label>
+
+    <div class="swipeBtns" id="swipeBtns" style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button type="button" class="btn swipeBtn active" data-swipe="kundig">Kundig</button>
+      <button type="button" class="btn swipeBtn" data-swipe="unkundig">Auffrischung</button>
+      <button type="button" class="btn swipeBtn" data-swipe="neutral">Neutral</button>
+      <button type="button" class="btn swipeBtn" data-swipe="clear">Linie</button>
     </div>
-    <div class="hint">Tipp: Markieren startet nur, wenn du auf einem Punkt beginnst. Sonst verschiebst du die Karte wie bisher.</div>
+
+    <div class="hint">Tipp: Wenn „Karte fixieren“ aktiv ist, kannst du überall wischen – es wird nur markiert. Ohne Fixieren markierst du nur, wenn du auf einem Punkt startest.</div>
   </div>
 
 
@@ -323,6 +334,39 @@ header{ padding: 10px 12px; }
 
   const $ = (id) => document.getElementById(id);
 
+// --- Wischmodus Konfiguration ---
+window.__swipeCfg = { status:'kundig' };
+function swipeEnabled(){ const cb=$('swipeMark'); return !!(cb && cb.checked); }
+function lockEnabled(){ const cb=$('lockMap'); return !!(cb && cb.checked); }
+function swipeStatus(){ return (window.__swipeCfg && window.__swipeCfg.status) ? window.__swipeCfg.status : 'kundig'; }
+function setSwipeStatus(st){
+  window.__swipeCfg.status = st;
+  const host = $('swipeBtns');
+  if (host){
+    host.querySelectorAll('.swipeBtn').forEach(b => b.classList.toggle('active', b.getAttribute('data-swipe')===st));
+  }
+}
+function wireSwipeUi(){
+  const host = $('swipeBtns');
+  if (host && !host.dataset.bound){
+    host.dataset.bound='1';
+    host.addEventListener('click', (ev)=>{
+      const btn = ev.target && ev.target.closest ? ev.target.closest('button[data-swipe]') : null;
+      if (!btn) return;
+      ev.preventDefault();
+      const st = btn.getAttribute('data-swipe') || 'kundig';
+      setSwipeStatus(st);
+      toast('Markierung: ' + (st==='kundig'?'kundig':(st==='unkundig'?'auffrischung':(st==='neutral'?'neutral':'Linie'))));
+    });
+  }
+  const lm = $('lockMap');
+  if (lm && !lm.dataset.bound){
+    lm.dataset.bound='1';
+    lm.addEventListener('change', ()=> toast(lm.checked ? 'Karte fixiert.' : 'Karte frei.'));
+  }
+}
+
+
 // === iOS: Tap auf sichtbaren <path> -> Marker-Element finden (data-typ/data-type) ===
 function findPointFromTarget(t){
   if (!t) return null;
@@ -356,8 +400,6 @@ function enableTouchGestures(){
   let moved = 0;
   let markSet = new Set();
   let lastMarkTs = 0;
-  const swipeEnabled = () => { const cb = document.getElementById('swipeMark'); return !!(cb && cb.checked); };
-  const swipeMode = () => { const sel = document.getElementById('swipeStatus'); return sel ? String(sel.value||'kundig') : 'kundig'; };
   function markPoint(el){
     if(!el || !el.id) return;
     const now = Date.now();
@@ -365,7 +407,7 @@ function enableTouchGestures(){
     lastMarkTs = now;
     if (markSet.has(el.id)) return;
     markSet.add(el.id);
-    const mode = swipeMode();
+    const mode = swipeStatus();
     if (mode === 'clear') {
       if (selection.overrides && selection.overrides[el.id]) delete selection.overrides[el.id];
       setVisual(el, getLineStatusForElement(el));
@@ -1363,6 +1405,7 @@ window.addEventListener('load', function(){
   try {
     var d = $('datum');
     if (d && !d.value) d.value = todayISO();
+  try{ wireSwipeUi(); }catch(e){}
 
   // Personendaten merken
   try{ restoreMeta(); }catch(e){}
